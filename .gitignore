@@ -1,0 +1,14 @@
+target/
+*.class
+.idea/
+*.iml
+*.zip
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+node_modules/
+.next/
+build/
+.gradle/

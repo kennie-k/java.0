@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-fraunces: 'Fraunces', serif;
+  --font-manrope: 'Manrope', sans-serif;
+  --gold: #C9A227;
+  --gold-dark: #AD8620;
+  --gold-glow: rgba(201,162,39,0.18);
+  --sidebar-w: 260px;
+  --topbar-h: 64px;
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { font-size: 16px; scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-manrope);
+    -webkit-font-smoothing: antialiased;
+    @apply bg-white dark:bg-[#1C1712] text-gray-900 dark:text-gray-100;
+  }
+  h1,h2,h3,h4,h5,h6 {
+    font-family: var(--font-fraunces);
+    @apply font-semibold leading-tight;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-[#4A3D28] rounded-full; }
+  ::selection { background: rgba(201,162,39,0.22); color: #8C6B1A; }
+  :focus-visible { outline: 2px solid #C9A227; outline-offset: 2px; }
+}
+
+@layer utilities {
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .font-display { font-family: var(--font-fraunces); }
+  .text-muted { @apply text-gray-500 dark:text-gray-400; }
+  .bg-surface { @apply bg-white dark:bg-[#201911]; }
+  .bg-surface-2 { @apply bg-gray-50 dark:bg-[#251E14]; }
+  .bg-surface-3 { @apply bg-gray-100 dark:bg-[#2E2518]; }
+  .border-base { @apply border-gray-200 dark:border-[#3A2F1F]; }
+  .card { @apply bg-white dark:bg-[#201911] border border-gray-200 dark:border-[#3A2F1F] rounded-xl shadow-sm; }
+  .card-hover { @apply card hover:shadow-lg hover:-translate-y-0.5 hover:border-gold-300 dark:hover:border-gold-500/40 transition-all duration-200; }
+  .input-base {
+    @apply w-full h-8 px-2.5 rounded-md border border-gray-200 dark:border-[#3A2F1F]
+           bg-white dark:bg-[#201911] text-gray-900 dark:text-gray-100
+           text-[13px] placeholder:text-gray-400 dark:placeholder:text-gray-600
+           focus:outline-none focus:ring-2 focus:ring-gold-500/20 focus:border-gold-500
+           transition-all duration-150;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md
+           bg-gold-500 hover:bg-gold-600 active:bg-gold-700
+           text-white text-[13px] font-medium
+           shadow-sm hover:shadow-gold hover:-translate-y-px active:translate-y-0
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md
+           bg-gray-100 dark:bg-[#2E2518] hover:bg-gray-200 dark:hover:bg-[#3A2F1F]
+           text-gray-700 dark:text-gray-200 text-[13px] font-medium
+           border border-gray-200 dark:border-[#3A2F1F] hover:-translate-y-px active:translate-y-0
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md
+           text-gray-600 dark:text-gray-300 text-[13px] font-medium
+           hover:bg-gray-100 dark:hover:bg-[#2E2518]
+           transition-all duration-150;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md
+           bg-red-500 hover:bg-red-600 text-white text-[13px] font-medium
+           hover:-translate-y-px active:translate-y-0
+           transition-all duration-150 disabled:opacity-50 disabled:hover:translate-y-0;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide;
+  }
+  .skeleton {
+    @apply bg-gray-200 dark:bg-gray-800 rounded animate-shimmer;
+    background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.05) 50%, transparent 75%);
+    background-size: 200% 100%;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium
+           text-gray-600 dark:text-gray-400
+           hover:bg-gray-100 dark:hover:bg-[#2E2518]
+           hover:text-gray-900 dark:hover:text-white
+           hover:translate-x-0.5
+           transition-all duration-150;
+  }
+  .sidebar-link-active {
+    @apply sidebar-link bg-gold-50 dark:bg-gold-500/10
+           text-gold-700 dark:text-gold-400
+           hover:bg-gold-50 dark:hover:bg-gold-500/10
+           hover:text-gold-700 dark:hover:text-gold-400
+           hover:translate-x-0;
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "SmartRE Kenya",
+  "short_name": "SmartRE",
+  "description": "Identity-verified property marketplace for Kenya",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FCFAF2",
+  "theme_color": "#C9A227",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

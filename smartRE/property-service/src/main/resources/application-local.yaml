@@ -1,0 +1,60 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/property_db
+    username: postgres
+    password: "bantu007#"
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    repair-on-migrate: true
+    out-of-order: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+  kafka:
+    bootstrap-servers: localhost:29092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: property-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.kenyarealestate.*"
+
+jwt:
+  secret: superSecretRealEstatePlatformKey2026MakeItAtLeast64CharactersLongForSecurity
+  expiration: 86400000
+
+server:
+  port: 8083
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+logging:
+  level:
+    root: INFO
+    com.kenyarealestate: DEBUG
+
+services:
+  verification-url: http://localhost:8082
+  internal-secret: smartre-internal-secret-2026
+
+redis:
+  search-cache-ttl-seconds: 120
+  property-detail-ttl-seconds: 300

@@ -1,0 +1,131 @@
+{
+  "dashboard": {
+    "title": "SmartRE Kenya \u2014 Overview",
+    "uid": "smartre-overview",
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Active Services",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "count(up == 1)",
+            "legendFormat": "Up"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "graph",
+        "title": "HTTP Request Rate (req/s)",
+        "gridPos": {
+          "x": 4,
+          "y": 0,
+          "w": 10,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (job)",
+            "legendFormat": "{{job}}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "graph",
+        "title": "HTTP Error Rate (%)",
+        "gridPos": {
+          "x": 14,
+          "y": 0,
+          "w": 10,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "100 * sum(rate(http_server_requests_seconds_count{status=~'5..'}[1m])) by (job) / sum(rate(http_server_requests_seconds_count[1m])) by (job)",
+            "legendFormat": "{{job}}"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "graph",
+        "title": "p95 Latency (seconds)",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (job, le))",
+            "legendFormat": "{{job}}"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "type": "graph",
+        "title": "JVM Heap Usage (%)",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "100 * jvm_memory_used_bytes{area='heap'} / jvm_memory_max_bytes{area='heap'}",
+            "legendFormat": "{{job}}"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "type": "stat",
+        "title": "Circuit Breakers Open",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 4,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "count(resilience4j_circuitbreaker_state{state='open'} == 1) or vector(0)",
+            "legendFormat": "Open"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "type": "graph",
+        "title": "Redis Cache Operations",
+        "gridPos": {
+          "x": 4,
+          "y": 16,
+          "w": 10,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(redis_commands_processed_total[1m])",
+            "legendFormat": "Redis ops/s"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true,
+  "folderId": 0
+}

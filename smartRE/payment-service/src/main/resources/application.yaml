@@ -1,0 +1,115 @@
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://payment-db:5432/payment_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:bantu007#}
+    driverClassName: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: ${spring.application.name}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.kenyarealestate.*" 
+
+server:
+  port: 8085
+
+jwt:
+  secret: ${JWT_SECRET}
+
+redis:
+  payment-lock-prefix: "payment:lock:"
+  payment-lock-ttl-seconds: 30
+
+kafka:
+  topics:
+    payment-events: payment-events
+
+mpesa:
+  consumer-key:    ${MPESA_CONSUMER_KEY:placeholder}
+  consumer-secret: ${MPESA_CONSUMER_SECRET:placeholder}
+  shortcode:       ${MPESA_SHORTCODE:174379}
+  passkey:         ${MPESA_PASSKEY:placeholder}
+  callback-url:    ${MPESA_CALLBACK_URL:https://your-domain.com/api/payments/mpesa/callback}
+  callback-secret: ${MPESA_CALLBACK_SECRET}
+  auth-url:        ${MPESA_AUTH_URL:https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials}
+  stk-push-url:    ${MPESA_STK_PUSH_URL:https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest}
+  b2c-url:         ${MPESA_B2C_URL:https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}
+  b2c-callback-url: ${MPESA_B2C_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/callback}
+  initiator-name:   ${MPESA_INITIATOR_NAME:testapi}
+  initiator-credential: ${MPESA_INITIATOR_CREDENTIAL:Safaricom999!}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+
+platform:
+  viewing-fee-kes:              ${PLATFORM_VIEWING_FEE_KES:200}
+  transaction-commission-pct:   ${PLATFORM_COMMISSION_PCT:2.5}
+  profile-access-fee-kes:       ${PLATFORM_PROFILE_ACCESS_FEE_KES:500}
+
+services:
+  property-url: ${PROPERTY_SERVICE_URL:http://property-service:8083}
+  internal-secret: ${INTERNAL_SECRET}
+
+gateway:
+  signing-secret: ${GATEWAY_SIGNING_SECRET}

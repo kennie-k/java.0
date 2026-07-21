@@ -1,0 +1,73 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/verification_db
+    username: postgres
+    password: "bantu007#"
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    repair-on-migrate: true
+    out-of-order: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+  kafka:
+    bootstrap-servers: localhost:29092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: verification-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.kenyarealestate.*"
+
+jwt:
+  secret: superSecretRealEstatePlatformKey2026MakeItAtLeast64CharactersLongForSecurity
+  expiration: 86400000
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+logging:
+  level:
+    root: INFO
+    com.kenyarealestate: DEBUG
+
+services:
+  property-url: http://localhost:8083
+  internal-secret: smartre-internal-secret-2026
+  document-analysis-enabled: false
+  document-analysis-url: https://api.yourdocumentai.com
+  document-analysis-key: placeholder
+  smile-identity-enabled: false
+  smile-identity-url: https://testapi.smileidentity.com/v1
+  smile-identity-partner-id: placeholder
+  smile-identity-api-key: placeholder
+  ardhisasa-enabled: false
+  ardhisasa-url: https://api.ardhisasa.go.ke
+  ardhisasa-api-key: placeholder
+
+verification:
+  identity-expiry-years: 2
+  max-fraud-strikes: 3
+  fraud-cooldown-days: 90
+  identity-auto-approve-score: 85
+  biometric-hard-block: false

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartre-config
+  namespace: smartre
+data:
+  REDIS_HOST: redis-service
+  KAFKA_BOOTSTRAP_SERVERS: kafka-service:9092
+  PROPERTY_SERVICE_URL: http://property-service:8083
+  VERIFICATION_SERVICE_URL: http://verification-service:8082
+  INTERNAL_SECRET: smartre-internal-secret-change-in-prod
+  SMILE_IDENTITY_ENABLED: "false"
+  ARDHISASA_ENABLED: "false"
+  DOCUMENT_ANALYSIS_ENABLED: "false"
+  BIOMETRIC_HARD_BLOCK: "false"
+  S3_ENABLED: "false"

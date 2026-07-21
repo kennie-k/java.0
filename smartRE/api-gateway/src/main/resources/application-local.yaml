@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+  cloud:
+    gateway:
+      routes:
+        - id: auth-open
+          uri: http://localhost:8081
+          predicates: [Path=/api/auth/**]
+        - id: user-secured
+          uri: http://localhost:8081
+          predicates: [Path=/api/users/**]
+          filters: [AuthFilter]
+        - id: verif-trust-open
+          uri: http://localhost:8082
+          predicates: [Path=/api/verification/trust-status/**]
+        - id: verif-identity-internal-open
+          uri: http://localhost:8082
+          predicates: [Path=/api/verification/identity/internal/**]
+        - id: verif-ownership-internal-open
+          uri: http://localhost:8082
+          predicates: [Path=/api/verification/ownership/internal/**]
+        - id: verif-secured
+          uri: http://localhost:8082
+          predicates: [Path=/api/verification/**]
+          filters: [AuthFilter]
+        - id: property-search-open
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/properties/search
+            - Method=GET
+        - id: property-detail-open
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/properties/{id}
+            - Method=GET
+        - id: property-internal-open
+          uri: http://localhost:8083
+          predicates: [Path=/api/properties/internal/**]
+        - id: property-secured
+          uri: http://localhost:8083
+          predicates: [Path=/api/properties/**]
+          filters: [AuthFilter]
+        - id: viewing-internal-open
+          uri: http://localhost:8084
+          predicates: [Path=/api/viewings/internal/**]
+        - id: viewing-secured
+          uri: http://localhost:8084
+          predicates: [Path=/api/viewings/**]
+          filters: [AuthFilter]
+        - id: revenue-b2c-callback-open
+          uri: http://localhost:8085
+          predicates: [Path=/api/revenue/mpesa/b2c/callback]
+        - id: revenue-secured
+          uri: http://localhost:8085
+          predicates: [Path=/api/revenue/**]
+          filters: [AuthFilter]
+        - id: payment-mpesa-callback-open
+          uri: http://localhost:8085
+          predicates: [Path=/api/payments/mpesa/callback]
+        - id: payment-secured
+          uri: http://localhost:8085
+          predicates: [Path=/api/payments/**]
+          filters: [AuthFilter]
+        - id: review-read-open
+          uri: http://localhost:8086
+          predicates:
+            - Path=/api/reviews/**
+            - Method=GET
+        - id: review-secured
+          uri: http://localhost:8086
+          predicates: [Path=/api/reviews/**]
+          filters: [AuthFilter]
+        - id: document-upload
+          uri: http://localhost:8081
+          predicates: [Path=/api/documents/**]
+          filters: [AuthFilter]
+
+jwt:
+  secret: superSecretRealEstatePlatformKey2026MakeItAtLeast64CharactersLongForSecurity
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+logging:
+  level:
+    root: INFO
+    com.kenyarealestate: DEBUG

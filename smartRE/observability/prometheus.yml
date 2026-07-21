@@ -1,0 +1,53 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: smartre-docker
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
+
+  - job_name: api-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [api-gateway:8080]
+
+  - job_name: user-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [user-service:8081]
+
+  - job_name: verification-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [verification-service:8082]
+
+  - job_name: property-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [property-service:8083]
+
+  - job_name: viewing-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [viewing-service:8084]
+
+  - job_name: payment-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [payment-service:8085]
+
+  - job_name: review-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [review-service:8086]

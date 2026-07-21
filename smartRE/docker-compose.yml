@@ -1,0 +1,612 @@
+services:
+
+  # ════════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE
+  # ════════════════════════════════════════════════════════════════
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: smartre-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  # ════════════════════════════════════════════════════════════════
+  # OBSERVABILITY STACK
+  # ════════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-smartre2026}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:2.9.7
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/config.yml
+
+  promtail:
+    image: grafana/promtail:2.9.7
+    restart: unless-stopped
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/config.yml:ro
+
+  # ════════════════════════════════════════════════════════════════
+  # DATABASES + PGBOUNCER
+  # ════════════════════════════════════════════════════════════════
+
+  user-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  user-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: user-db
+      DB_PORT: 5432
+      DB_NAME: user_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 3
+    ports:
+      - "6432:5432"
+    depends_on:
+      user-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  verification-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: verification_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - verification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  verification-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: verification-db
+      DB_PORT: 5432
+      DB_NAME: verification_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+    ports:
+      - "6433:5432"
+    depends_on:
+      verification-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  property-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: property_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - property-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  property-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: property-db
+      DB_PORT: 5432
+      DB_NAME: property_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 30
+    ports:
+      - "6434:5432"
+    depends_on:
+      property-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  viewing-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: viewing_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - viewing-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  viewing-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: viewing-db
+      DB_PORT: 5432
+      DB_NAME: viewing_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 15
+    ports:
+      - "6435:5432"
+    depends_on:
+      viewing-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  payment-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payment-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: payment-db
+      DB_PORT: 5432
+      DB_NAME: payment_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+    ports:
+      - "6436:5432"
+    depends_on:
+      payment-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  review-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: review_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - review-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  review-pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p1
+    restart: unless-stopped
+    environment:
+      DB_HOST: review-db
+      DB_PORT: 5432
+      DB_NAME: review_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 15
+    ports:
+      - "6437:5432"
+    depends_on:
+      review-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ════════════════════════════════════════════════════════════════
+  # MICROSERVICES
+  # ════════════════════════════════════════════════════════════════
+
+  user-service:
+    build: ./user-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user-pgbouncer:5432/user_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      S3_ENABLED: ${S3_ENABLED:-false}
+      S3_BUCKET: ${S3_BUCKET:-smartre-documents}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-placeholder}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-placeholder}
+    depends_on:
+      user-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  verification-service:
+    build: ./verification-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://verification-pgbouncer:5432/verification_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      PROPERTY_SERVICE_URL: http://property-service:8083
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+      SMILE_IDENTITY_ENABLED: ${SMILE_IDENTITY_ENABLED:-false}
+      ARDHISASA_ENABLED: ${ARDHISASA_ENABLED:-false}
+      DOCUMENT_ANALYSIS_ENABLED: ${DOCUMENT_ANALYSIS_ENABLED:-false}
+      BIOMETRIC_HARD_BLOCK: ${BIOMETRIC_HARD_BLOCK:-false}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      verification-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  property-service:
+    build: ./property-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://property-pgbouncer:5432/property_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      VERIFICATION_SERVICE_URL: http://verification-service:8082
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      property-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      verification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  viewing-service:
+    build: ./viewing-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://viewing-pgbouncer:5432/viewing_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PAYMENT_SERVICE_URL: http://payment-service:8085
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+    depends_on:
+      viewing-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  payment-service:
+    build: ./payment-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payment-pgbouncer:5432/payment_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY:-placeholder}
+      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET:-placeholder}
+      MPESA_SHORTCODE: ${MPESA_SHORTCODE:-174379}
+      MPESA_PASSKEY: ${MPESA_PASSKEY:-placeholder}
+      MPESA_AUTH_URL: ${MPESA_AUTH_URL:-https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials}
+      MPESA_STK_PUSH_URL: ${MPESA_STK_PUSH_URL:-https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-https://your-domain.com/api/payments/mpesa/callback}
+      MPESA_CALLBACK_SECRET: ${MPESA_CALLBACK_SECRET:?MPESA_CALLBACK_SECRET must be set in .env}
+      MPESA_B2C_URL: ${MPESA_B2C_URL:-https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}
+      MPESA_B2C_CALLBACK_URL: ${MPESA_B2C_CALLBACK_URL:-https://your-domain.com/api/revenue/mpesa/b2c/callback}
+      MPESA_INITIATOR_NAME: ${MPESA_INITIATOR_NAME:-testapi}
+      MPESA_INITIATOR_CREDENTIAL: ${MPESA_INITIATOR_CREDENTIAL:-placeholder}
+      PLATFORM_VIEWING_FEE_KES: ${PLATFORM_VIEWING_FEE_KES:-200}
+      PLATFORM_COMMISSION_PCT: ${PLATFORM_COMMISSION_PCT:-2.5}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      payment-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  review-service:
+    build: ./review-service
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://review-pgbouncer:5432/review_db?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      review-pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  api-gateway:
+    build: ./api-gateway
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      verification-service:
+        condition: service_healthy
+      property-service:
+        condition: service_healthy
+      viewing-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      review-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+volumes:
+  redis-data:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-logs:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  user-db-data:
+  verification-db-data:
+  property-db-data:
+  viewing-db-data:
+  payment-db-data:
+  review-db-data:

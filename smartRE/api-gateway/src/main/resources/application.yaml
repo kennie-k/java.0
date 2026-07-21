@@ -1,0 +1,203 @@
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  cloud:
+    gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: ${FRONTEND_URL:http://localhost:3000}
+            allowedMethods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"]
+            allowedHeaders: "*"
+            allowCredentials: true
+            exposedHeaders: ["Authorization"]
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: 50
+            redis-rate-limiter.burstCapacity: 100
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@userKeyResolver}"
+      routes:
+
+        # ── AUTH ─────────────────────────────────────────────────
+        - id: auth-open
+          uri: http://user-service:8081
+          predicates: [Path=/api/auth/**]
+
+        # ── USERS ────────────────────────────────────────────────
+        - id: user-secured
+          uri: http://user-service:8081
+          predicates: [Path=/api/users/**]
+          filters: [AuthFilter]
+
+        # ── VERIFICATION ─────────────────────────────────────────
+        - id: verif-trust-open
+          uri: http://verification-service:8082
+          predicates: [Path=/api/verification/trust-status/**]
+
+        - id: verif-identity-internal-open
+          uri: http://verification-service:8082
+          predicates: [Path=/api/verification/identity/internal/**]
+
+        - id: verif-ownership-internal-open
+          uri: http://verification-service:8082
+          predicates: [Path=/api/verification/ownership/internal/**]
+
+        - id: verif-secured
+          uri: http://verification-service:8082
+          predicates: [Path=/api/verification/**]
+          filters: [AuthFilter]
+
+        # ── PROPERTIES ───────────────────────────────────────────
+        - id: property-search-open
+          uri: http://property-service:8083
+          predicates:
+            - Path=/api/properties/search
+            - Method=GET
+
+        - id: property-internal-open
+          uri: http://property-service:8083
+          predicates: [Path=/api/properties/internal/**]
+
+        - id: property-detail-open
+          uri: http://property-service:8083
+          predicates:
+            - Path=/api/properties/{id}
+            - Method=GET
+
+        - id: property-by-seller-open
+          uri: http://property-service:8083
+          predicates:
+            - Path=/api/properties/seller/{sellerId}
+            - Method=GET
+
+        - id: property-secured
+          uri: http://property-service:8083
+          predicates: [Path=/api/properties/**]
+          filters: [AuthFilter]
+
+        # ── VIEWINGS ─────────────────────────────────────────────
+        - id: viewing-internal-open
+          uri: http://viewing-service:8084
+          predicates: [Path=/api/viewings/internal/**]
+
+        - id: viewing-secured
+          uri: http://viewing-service:8084
+          predicates: [Path=/api/viewings/**]
+          filters: [AuthFilter]
+
+        # ── PAYMENTS ─────────────────────────────────────────────
+        - id: revenue-b2c-callback-open
+          uri: http://payment-service:8085
+          predicates: [Path=/api/revenue/mpesa/b2c/callback/**]
+
+        - id: revenue-secured
+          uri: http://payment-service:8085
+          predicates: [Path=/api/revenue/**]
+          filters: [AuthFilter]
+
+        - id: payment-mpesa-callback-open
+          uri: http://payment-service:8085
+          predicates: [Path=/api/payments/mpesa/callback/**]
+
+        - id: payment-config-open
+          uri: http://payment-service:8085
+          predicates:
+            - Path=/api/payments/config
+            - Method=GET
+
+        - id: payment-secured
+          uri: http://payment-service:8085
+          predicates: [Path=/api/payments/**]
+          filters: [AuthFilter]
+
+        # ── REVIEWS ──────────────────────────────────────────────
+        - id: review-read-open
+          uri: http://review-service:8086
+          predicates:
+            - Path=/api/reviews/**
+            - Method=GET
+
+        - id: review-secured
+          uri: http://review-service:8086
+          predicates: [Path=/api/reviews/**]
+          filters: [AuthFilter]
+
+
+        - id: document-upload
+          uri: http://user-service:8081
+          predicates: [Path=/api/documents/**]
+          filters: [AuthFilter]
+
+        # ── SWAGGER PASSTHROUGHS ──────────────────────────────────
+        - id: swagger-user
+          uri: http://user-service:8081
+          predicates: [Path=/docs/user-service/**]
+          filters:
+            - RewritePath=/docs/user-service/(?<segment>.*), /${segment}
+
+        - id: swagger-verification
+          uri: http://verification-service:8082
+          predicates: [Path=/docs/verification-service/**]
+          filters:
+            - RewritePath=/docs/verification-service/(?<segment>.*), /${segment}
+
+        - id: swagger-property
+          uri: http://property-service:8083
+          predicates: [Path=/docs/property-service/**]
+          filters:
+            - RewritePath=/docs/property-service/(?<segment>.*), /${segment}
+
+        - id: swagger-viewing
+          uri: http://viewing-service:8084
+          predicates: [Path=/docs/viewing-service/**]
+          filters:
+            - RewritePath=/docs/viewing-service/(?<segment>.*), /${segment}
+
+        - id: swagger-payment
+          uri: http://payment-service:8085
+          predicates: [Path=/docs/payment-service/**]
+          filters:
+            - RewritePath=/docs/payment-service/(?<segment>.*), /${segment}
+
+        - id: swagger-review
+          uri: http://review-service:8086
+          predicates: [Path=/docs/review-service/**]
+          filters:
+            - RewritePath=/docs/review-service/(?<segment>.*), /${segment}
+
+server:
+  port: 8080
+
+jwt:
+  secret: ${JWT_SECRET}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+gateway:
+  signing-secret: ${GATEWAY_SIGNING_SECRET}
