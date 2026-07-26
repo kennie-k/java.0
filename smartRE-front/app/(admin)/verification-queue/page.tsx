@@ -1,24 +1,35 @@
 'use client'
-import { useEffect, useState } from 'react'
-import Image from 'next/image'
+import { useMemo, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListChecks, CheckCircle, XCircle, FileText, AlertTriangle, Landmark, ShieldCheck } from 'lucide-react'
 import { verifApi } from '@/lib/api'
+import { queryKeys } from '@/lib/queryKeys'
+import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { Modal, EmptyState, PageLoader } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
+import { DocumentThumbnailGrid } from '@/components/ui/DocumentThumbnailGrid'
 import Textarea from '@/components/ui/Textarea'
 import Select from '@/components/ui/Select'
 import { StatusBadge } from '@/components/ui/Badge'
 import { fmt } from '@/lib/utils'
 import toast from 'react-hot-toast'
+import type { IdentityVerificationResponse, OwnershipVerificationResponse } from '@/types'
+
+const ID_KEY = queryKeys.identityAdminQueue('HUMAN_REVIEW')
+
+const OWN_STATUSES = ['MINISTRY_LANDS_CHECK', 'ENCUMBRANCE_CHECK', 'LEGAL_REVIEW', 'HUMAN_REVIEW'] as const
+const OWN_KEY_PREFIX = ['admin', 'verification', 'ownership'] as const
+
+type ModalItem =
+  | (IdentityVerificationResponse & { _tab: 'identity' })
+  | (OwnershipVerificationResponse & { _tab: 'ownership' })
 
 export default function VerifQueuePage() {
+  const qc = useQueryClient()
   const [tab, setTab] = useState<'identity' | 'ownership'>('identity')
-  const [idQueue, setIdQueue] = useState<any[]>([])
-  const [ownQueue, setOwnQueue] = useState<any[]>([])
-  const [loading, setLoad] = useState(true)
-  const [modal, setModal] = useState<any | null>(null)
-  const [reviewing, setRev] = useState(false)
+  const [modal, setModal] = useState<ModalItem | null>(null)
   const [form, setForm] = useState({ decision: 'APPROVED', notes: '', resubmissionNotes: '' })
   const [ownForm, setOwnForm] = useState({
     ministryConfirmed: true, encumbranceClear: true,
@@ -27,37 +38,41 @@ export default function VerifQueuePage() {
     decision: 'APPROVED', notes: '',
   })
 
-  const load = async () => {
-    setLoad(true)
-    try {
-      const [iq, oq] = await Promise.all([verifApi.idAdminQueue(), verifApi.ownerAdminQueue()])
-      setIdQueue(iq.content || [])
-      setOwnQueue(Array.isArray(oq) ? oq : oq.content || [])
-    } finally { setLoad(false) }
-  }
-  useEffect(() => { load() }, [])
+  const idQueueQuery = useQuery({ queryKey: ID_KEY, queryFn: () => verifApi.idAdminQueue() })
+  const ownQueueQueries = useQueries({
+    queries: OWN_STATUSES.map(status => ({
+      queryKey: queryKeys.ownershipAdminQueue(status),
+      queryFn: () => verifApi.ownerAdminQueue(status),
+    })),
+  })
 
-  const reviewIdentity = async () => {
-    if (!modal) return
-    setRev(true)
-    try {
-      await verifApi.idAdminReview(modal.id, form)
-      toast.success(`Verification ${form.decision}`)
-      setModal(null); load()
-    } catch (e: any) { toast.error(e.response?.data?.error || 'Review failed') }
-    finally { setRev(false) }
-  }
+  const idQueue = idQueueQuery.data?.content ?? []
+  const ownQueue = useMemo(
+    () => ownQueueQueries
+      .flatMap(q => q.data?.content ?? [])
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [ownQueueQueries]
+  )
+  const loading = idQueueQuery.isLoading || ownQueueQueries.some(q => q.isLoading)
+  const loadError = idQueueQuery.isError || ownQueueQueries.some(q => q.isError)
 
-  const advanceOwnership = async () => {
-    if (!modal) return
-    setRev(true)
-    try {
-      if (modal.status === 'MINISTRY_LANDS_CHECK') {
-        await verifApi.ownerAdminMinistry(modal.id, ownForm.ministryConfirmed, ownForm.notes)
-      } else if (modal.status === 'ENCUMBRANCE_CHECK') {
-        await verifApi.ownerAdminEncumb(modal.id, ownForm.encumbranceClear, ownForm.notes)
-      } else if (modal.status === 'LEGAL_REVIEW') {
-        await verifApi.ownerAdminLegal(modal.id, {
+  const reviewIdentityMutation = useMutation({
+    mutationFn: (vars: { id: string; form: typeof form }) => verifApi.idAdminReview(vars.id, vars.form),
+    onMutate: vars => optimisticRemoveFromPage<IdentityVerificationResponse>(qc, ID_KEY, vars.id),
+    onError: (_e, _v, previous) => rollbackPage(qc, ID_KEY, previous),
+    onSettled: () => qc.invalidateQueries({ queryKey: ID_KEY }),
+  })
+
+  const advanceOwnershipMutation = useMutation({
+    mutationFn: (item: OwnershipVerificationResponse) => {
+      if (item.status === 'MINISTRY_LANDS_CHECK') {
+        return verifApi.ownerAdminMinistry(item.id, ownForm.ministryConfirmed, ownForm.notes)
+      }
+      if (item.status === 'ENCUMBRANCE_CHECK') {
+        return verifApi.ownerAdminEncumb(item.id, ownForm.encumbranceClear, ownForm.notes)
+      }
+      if (item.status === 'LEGAL_REVIEW') {
+        return verifApi.ownerAdminLegal(item.id, {
           lcAdvocateStampPresent: ownForm.lcAdvocateStampPresent,
           lcAdvocateSignaturePresent: ownForm.lcAdvocateSignaturePresent,
           lcOfficialSealPresent: ownForm.lcOfficialSealPresent,
@@ -66,16 +81,35 @@ export default function VerifQueuePage() {
           humanLegalApproved: ownForm.humanLegalApproved,
           humanReviewNotes: ownForm.notes,
         })
-      } else {
-        await verifApi.ownerAdminFinal(modal.id, {
-          decision: ownForm.decision, notes: ownForm.notes,
-          ministryLandsConfirmed: ownForm.ministryConfirmed, encumbranceClear: ownForm.encumbranceClear,
-        })
       }
+      return verifApi.ownerAdminFinal(item.id, {
+        decision: ownForm.decision, notes: ownForm.notes,
+        ministryLandsConfirmed: ownForm.ministryConfirmed, encumbranceClear: ownForm.encumbranceClear,
+      })
+    },
+    onMutate: item => optimisticRemoveFromPage<OwnershipVerificationResponse>(qc, queryKeys.ownershipAdminQueue(item.status), item.id),
+    onError: (_e, item, previous) => rollbackPage(qc, queryKeys.ownershipAdminQueue(item.status), previous),
+    onSettled: () => qc.invalidateQueries({ queryKey: OWN_KEY_PREFIX }),
+  })
+
+  const reviewing = reviewIdentityMutation.isPending || advanceOwnershipMutation.isPending
+
+  const reviewIdentity = async () => {
+    if (!modal || modal._tab !== 'identity') return
+    try {
+      await reviewIdentityMutation.mutateAsync({ id: modal.id, form })
+      toast.success(`Verification ${form.decision}`)
+      setModal(null)
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Review failed') }
+  }
+
+  const advanceOwnership = async () => {
+    if (!modal || modal._tab !== 'ownership') return
+    try {
+      await advanceOwnershipMutation.mutateAsync(modal)
       toast.success('Ownership verification updated')
-      setModal(null); load()
+      setModal(null)
     } catch (e: any) { toast.error(e.response?.data?.error || 'Update failed') }
-    finally { setRev(false) }
   }
 
   if (loading) return <PageLoader/>
@@ -88,6 +122,8 @@ export default function VerifQueuePage() {
         <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Verification Queue</h1>
         <p className="text-muted text-[13px] mt-1">{queue.length} pending review{queue.length !== 1 ? 's' : ''}</p>
       </div>
+
+      {loadError && <InlineError message="Failed to load one or more verification queues."/>}
 
       <div className="flex bg-gray-100 dark:bg-[#2E2518] rounded-lg p-1 w-fit">
         <button onClick={() => setTab('identity')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${tab === 'identity' ? 'bg-white dark:bg-[#201911] text-gray-900 dark:text-white shadow-sm' : 'text-muted'}`}>
@@ -102,27 +138,37 @@ export default function VerifQueuePage() {
         <EmptyState icon={<ListChecks size={28}/>} title="Queue is clear" desc={`No ${tab} verifications pending admin review.`}/>
       ) : (
         <div className="space-y-3">
-          {queue.map((item: any) => (
+          {tab === 'identity' ? idQueue.map(item => (
             <Card key={item.id}>
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-gold-100 dark:bg-gold-500/10 text-gold-500 flex items-center justify-center shrink-0">
-                  {tab === 'identity' ? <FileText size={17}/> : <Landmark size={17}/>}
+                  <FileText size={17}/>
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-semibold text-gray-900 dark:text-white text-[13px]">
-                      {tab === 'identity' ? `User ID: ${item.userId?.slice(0, 8)}...` : `Property ID: ${item.propertyId?.slice(0, 8)}...`}
-                    </p>
+                    <p className="font-semibold text-gray-900 dark:text-white text-[13px]">User ID: {item.userId?.slice(0, 8)}...</p>
                     <StatusBadge status={item.status} size="sm"/>
                   </div>
-                  {tab === 'identity' ? (
-                    <p className="text-[12px] text-muted">Score: {item.identityScore}/100 · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
-                  ) : (
-                    <p className="text-[12px] text-muted">{item.county} · {item.propertyType} · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
-                  )}
+                  <p className="text-[12px] text-muted">Score: {item.identityScore}/100 · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
                   {item.fraudStrikeCount > 0 && <p className="text-[12px] text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={11}/>Fraud strikes: {item.fraudStrikeCount}</p>}
                 </div>
-                <Button size="sm" onClick={() => { setModal({ ...item, _tab: tab }); setForm({ decision: 'APPROVED', notes: '', resubmissionNotes: '' }) }}>Review</Button>
+                <Button size="sm" onClick={() => { setModal({ ...item, _tab: 'identity' }); setForm({ decision: 'APPROVED', notes: '', resubmissionNotes: '' }) }}>Review</Button>
+              </div>
+            </Card>
+          )) : ownQueue.map(item => (
+            <Card key={item.id}>
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gold-100 dark:bg-gold-500/10 text-gold-500 flex items-center justify-center shrink-0">
+                  <Landmark size={17}/>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-semibold text-gray-900 dark:text-white text-[13px]">Property ID: {item.propertyId?.slice(0, 8)}...</p>
+                    <StatusBadge status={item.status} size="sm"/>
+                  </div>
+                  <p className="text-[12px] text-muted">{item.county} · {item.propertyType} · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
+                </div>
+                <Button size="sm" onClick={() => setModal({ ...item, _tab: 'ownership' })}>Review</Button>
               </div>
             </Card>
           ))}
@@ -141,23 +187,7 @@ export default function VerifQueuePage() {
               <p>User: {modal.userId}</p>
               <p>AI Score: <strong>{modal.identityScore}/100</strong></p>
             </div>
-            {modal.documents && modal.documents.length > 0 && (
-              <div>
-                <p className="text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-2">Uploaded documents ({modal.documents.length})</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {modal.documents.map((d: any) => (
-                    <a key={d.id} href={d.documentUrl} target="_blank" rel="noopener noreferrer"
-                      className="group relative aspect-video rounded-lg overflow-hidden border border-base bg-gray-100 dark:bg-[#1A1509]">
-                      <Image src={d.documentUrl} alt={d.documentCategory} fill sizes="200px" className="object-cover"/>
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                        <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-medium transition-opacity">View full size</span>
-                      </div>
-                      <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-2 py-1 truncate">{d.documentCategory?.replace(/_/g, ' ')}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
+            <DocumentThumbnailGrid documents={modal.documents.map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
             <Select label="Decision" required options={[{ value: 'APPROVED', label: 'Approve' }, { value: 'REJECTED', label: 'Reject' }]}
               value={form.decision} onChange={e => setForm(f => ({ ...f, decision: e.target.value }))}/>
             <Textarea label="Review notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}/>
@@ -169,7 +199,7 @@ export default function VerifQueuePage() {
       <Modal open={!!modal && modal._tab === 'ownership'} onClose={() => setModal(null)} title="Review ownership verification"
         footer={<><Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
           <Button onClick={advanceOwnership} loading={reviewing}>
-            {modal?.status === 'HUMAN_REVIEW' ? 'Submit final decision' : 'Advance to next stage'}
+            {modal && modal._tab === 'ownership' && modal.status === 'HUMAN_REVIEW' ? 'Submit final decision' : 'Advance to next stage'}
           </Button></>}>
         {modal && modal._tab === 'ownership' && (
           <div className="space-y-4">
@@ -177,23 +207,7 @@ export default function VerifQueuePage() {
               <p>County: {modal.county} · Parcel: {modal.parcelNumber || 'N/A'}</p>
               <p>Title deed: {modal.titleDeedNumber || 'N/A'} · LR: {modal.lrNumber || 'N/A'}</p>
             </div>
-            {modal.documents && modal.documents.length > 0 && (
-              <div>
-                <p className="text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-2">Uploaded documents ({modal.documents.length})</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {modal.documents.map((d: any) => (
-                    <a key={d.id} href={d.documentUrl} target="_blank" rel="noopener noreferrer"
-                      className="group relative aspect-video rounded-lg overflow-hidden border border-base bg-gray-100 dark:bg-[#1A1509]">
-                      <Image src={d.documentUrl} alt={d.documentCategory} fill sizes="200px" className="object-cover"/>
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                        <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-medium transition-opacity">View full size</span>
-                      </div>
-                      <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-2 py-1 truncate">{d.documentCategory?.replace(/_/g, ' ')}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
+            <DocumentThumbnailGrid documents={modal.documents.map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
 
             {modal.status === 'MINISTRY_LANDS_CHECK' && (
               <Select label="Ministry of Lands / Ardhisasa confirmed?" required
@@ -207,16 +221,16 @@ export default function VerifQueuePage() {
             )}
             {modal.status === 'LEGAL_REVIEW' && (
               <div className="grid grid-cols-2 gap-2">
-                {[
+                {([
                   ['lcAdvocateStampPresent', 'Advocate stamp present'],
                   ['lcAdvocateSignaturePresent', 'Advocate signature present'],
                   ['lcOfficialSealPresent', 'Official seal present'],
                   ['lcOwnerSignaturePresent', 'Owner signature present'],
                   ['lcParcelNumberMatches', 'Parcel number matches'],
                   ['humanLegalApproved', 'Overall legal approval'],
-                ].map(([key, label]) => (
+                ] as const).map(([key, label]) => (
                   <label key={key} className="flex items-center gap-2 text-[12px] p-2 rounded-md border border-base cursor-pointer">
-                    <input type="checkbox" checked={(ownForm as any)[key]} onChange={e => setOwnForm(f => ({ ...f, [key]: e.target.checked }))}/>
+                    <input type="checkbox" checked={ownForm[key]} onChange={e => setOwnForm(f => ({ ...f, [key]: e.target.checked }))}/>
                     {label}
                   </label>
                 ))}

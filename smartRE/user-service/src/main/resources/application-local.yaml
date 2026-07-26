@@ -37,6 +37,15 @@ jwt:
   secret: superSecretRealEstatePlatformKey2026MakeItAtLeast64CharactersLongForSecurity
   expiration: 86400000
 
+services:
+  verification-url: http://localhost:8082
+
+app:
+  public-url: http://localhost:8080
+
+storage:
+  local-dir: ./data/uploads
+
 server:
   port: 8081
 

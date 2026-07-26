@@ -9,6 +9,7 @@ public class PropertyResponse {
     private BigDecimal price; private Integer bedrooms, bathrooms, yearBuilt;
     private Double areaSqm; private List<String> imageUrls;
     private boolean sellerIdentityVerified, propertyOwnershipVerified, fullyTrusted;
+    private boolean duplicateParcelFlag;
     private String parcelNumber, titleDeedNumber;
     private Integer viewCount; private LocalDateTime createdAt, updatedAt;
 }

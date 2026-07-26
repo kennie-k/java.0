@@ -10,6 +10,7 @@ import java.util.*;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmail(String email);
+    Optional<User> findByResetTokenHash(String resetTokenHash);
     boolean existsByEmail(String email);
     boolean existsByPhone(String phone);
     boolean existsByRole(Role role);

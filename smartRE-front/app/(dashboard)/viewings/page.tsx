@@ -1,63 +1,61 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Calendar, CheckCircle, XCircle, Clock, Building2 } from 'lucide-react'
 import { viewingApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
+import { isSellerOrAgent } from '@/lib/roles'
+import { queryKeys } from '@/lib/queryKeys'
 import type { ViewingResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { EmptyState, PageLoader, ConfirmModal } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
 import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
 export default function ViewingsPage() {
   const { user } = useAuthStore()
-  const [items, setItems] = useState<ViewingResponse[]>([])
-  const [loading, setLoad] = useState(true)
-  const [tab, setTab]     = useState<'buyer'|'seller'>(user?.role==='SELLER'?'seller':'buyer')
-  const [acting, setAct]  = useState<string|null>(null)
-  const [confirm, setConf]= useState<{id:string;action:string}|null>(null)
-  const [page, setPage]   = useState(0)
-  const [totalPages, setTotalPages] = useState(1)
-  const [loadingMore, setLoadingMore] = useState(false)
+  const qc = useQueryClient()
+  const isSeller = isSellerOrAgent(user)
+  const [tab, setTab] = useState<'buyer'|'seller'>(isSeller ? 'seller' : 'buyer')
+  const [confirm, setConf] = useState<{id:string;action:string}|null>(null)
 
-  const load = async () => {
-    setLoad(true)
-    try {
-      const r = tab==='buyer' ? await viewingApi.myBuyer(0) : await viewingApi.mySeller(0)
-      setItems(r.content || [])
-      setTotalPages(r.totalPages || 1)
-      setPage(0)
-    } finally { setLoad(false) }
-  }
-  useEffect(() => { load() }, [tab])
+  const queryKey = queryKeys.myViewings(tab)
+  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, error } = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => (tab === 'buyer' ? viewingApi.myBuyer(pageParam) : viewingApi.mySeller(pageParam)),
+    initialPageParam: 0,
+    getNextPageParam: last => {
+      const next = last.number + 1
+      return next < last.totalPages ? next : undefined
+    },
+  })
+  const items = data?.pages.flatMap(p => p.content ?? []) ?? []
 
-  const loadMore = async () => {
-    setLoadingMore(true)
-    try {
-      const next = page + 1
-      const r = tab==='buyer' ? await viewingApi.myBuyer(next) : await viewingApi.mySeller(next)
-      setItems(prev => [...prev, ...(r.content || [])])
-      setTotalPages(r.totalPages || 1)
-      setPage(next)
-    } finally { setLoadingMore(false) }
-  }
+  const actionMutation = useMutation({
+    mutationFn: (vars: { id: string; action: string }) => {
+      if (vars.action === 'confirm-seller') return viewingApi.confirmSeller(vars.id)
+      if (vars.action === 'confirm-buyer') return viewingApi.confirmBuyer(vars.id)
+      if (vars.action === 'complete') return viewingApi.complete(vars.id)
+      return viewingApi.cancel(vars.id, { cancellationReason: 'Cancelled by user' })
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey }),
+  })
+  const acting = actionMutation.isPending && actionMutation.variables
+    ? actionMutation.variables.id + actionMutation.variables.action
+    : null
 
-  const doAction = async (id:string, action:string) => {
-    setAct(id+action)
+  const doAction = async (id: string, action: string) => {
     try {
-      if (action==='confirm-seller') await viewingApi.confirmSeller(id)
-      else if (action==='confirm-buyer') await viewingApi.confirmBuyer(id)
-      else if (action==='complete') await viewingApi.complete(id)
-      else if (action==='cancel') await viewingApi.cancel(id, { cancellationReason:'Cancelled by user' })
+      await actionMutation.mutateAsync({ id, action })
       toast.success('Done!')
-      load()
-    } catch (e:any) { toast.error(e.response?.data?.error || 'Action failed') }
-    finally { setAct(null); setConf(null) }
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Action failed') }
+    finally { setConf(null) }
   }
 
-  if (loading && items.length===0) return <PageLoader/>
+  if (isLoading) return <PageLoader/>
 
   return (
     <div className="space-y-6">
@@ -66,8 +64,9 @@ export default function ViewingsPage() {
         <p className="text-muted text-sm mt-1">Manage your property viewing appointments</p>
       </div>
 
-      {/* Tabs */}
-      {user?.role !== 'SELLER' ? null : (
+      {error && <InlineError message="Failed to load viewings."/>}
+
+      {!isSeller ? null : (
         <div className="flex border-b border-base">
           {(['buyer','seller'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -79,9 +78,7 @@ export default function ViewingsPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="space-y-4">{[0,1,2].map(i=><div key={i} className="skeleton h-32 rounded-xl"/>)}</div>
-      ) : items.length===0 ? (
+      {items.length===0 ? (
         <EmptyState icon={<Calendar size={28}/>} title="No viewings" desc="Your viewing appointments will appear here."/>
       ) : (
         <div className="space-y-4">
@@ -89,9 +86,9 @@ export default function ViewingsPage() {
         </div>
       )}
 
-      {page + 1 < totalPages && (
+      {hasNextPage && (
         <div className="flex justify-center">
-          <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>Load more</Button>
+          <Button variant="secondary" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>Load more</Button>
         </div>
       )}
 
@@ -101,7 +98,7 @@ export default function ViewingsPage() {
         message={confirm?.action==='cancel' ? 'Are you sure you want to cancel this viewing?' : 'Confirm this action?'}
         label={confirm?.action==='cancel'?'Cancel viewing':'Confirm'}
         danger={confirm?.action==='cancel'}
-        loading={!!acting}/>
+        loading={actionMutation.isPending}/>
     </div>
   )
 }
@@ -130,7 +127,6 @@ function ViewingCard({ viewing:v, role, onAction, acting }:{ viewing:ViewingResp
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Confirmation status */}
           <div className="flex items-center gap-3 text-xs mr-2">
             <span className={cn('flex items-center gap-1', v.buyerConfirmed ? 'text-emerald-600' : 'text-gray-400')}>
               {v.buyerConfirmed ? <CheckCircle size={13}/> : <Clock size={13}/>} Buyer

@@ -1,47 +1,41 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { userApi, verifApi, reviewApi, propertyApi, paymentApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { usePlatformConfig } from './usePlatformConfig'
-import type { UserResponse, TrustStatusResponse, SellerRatingResponse, ReviewResponse, PropertyResponse } from '@/types'
+import { queryKeys } from '@/lib/queryKeys'
 
 export function useSellerProfile(sellerId: string) {
   const { user } = useAuthStore()
   const platformConfig = usePlatformConfig()
-  const [seller, setSeller] = useState<UserResponse | null>(null)
-  const [trust, setTrust] = useState<TrustStatusResponse | null>(null)
-  const [rating, setRating] = useState<SellerRatingResponse | null>(null)
-  const [reviews, setReviews] = useState<ReviewResponse[]>([])
-  const [listings, setListings] = useState<PropertyResponse[]>([])
-  const [hasAccess, setHasAccess] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
 
-  const checkAccess = useCallback(() => {
-    if (!user) { setHasAccess(false); return }
-    paymentApi.profileAccess(sellerId).then(r => setHasAccess(r.hasAccess)).catch(() => setHasAccess(false))
-  }, [sellerId, user])
+  const [sellerQ, trustQ, ratingQ, reviewsQ, listingsQ] = useQueries({
+    queries: [
+      { queryKey: [...queryKeys.sellerProfile(sellerId), 'profile'], queryFn: () => userApi.getById(sellerId), enabled: !!sellerId, retry: false },
+      { queryKey: [...queryKeys.sellerProfile(sellerId), 'trust'], queryFn: () => verifApi.trustStatus(sellerId), enabled: !!sellerId },
+      { queryKey: [...queryKeys.sellerProfile(sellerId), 'rating'], queryFn: () => reviewApi.sellerRating(sellerId), enabled: !!sellerId },
+      { queryKey: [...queryKeys.sellerProfile(sellerId), 'reviews'], queryFn: () => reviewApi.bySeller(sellerId), enabled: !!sellerId },
+      { queryKey: [...queryKeys.sellerProfile(sellerId), 'listings'], queryFn: () => propertyApi.bySeller(sellerId), enabled: !!sellerId },
+    ],
+  })
 
-  useEffect(() => {
-    if (!sellerId) return
-    Promise.allSettled([
-      userApi.getById(sellerId),
-      verifApi.trustStatus(sellerId),
-      reviewApi.sellerRating(sellerId),
-      reviewApi.bySeller(sellerId),
-      propertyApi.bySeller(sellerId),
-    ]).then(([u, t, r, rv, l]) => {
-      if (u.status === 'fulfilled') setSeller(u.value); else setNotFound(true)
-      if (t.status === 'fulfilled') setTrust(t.value)
-      if (r.status === 'fulfilled') setRating(r.value)
-      if (rv.status === 'fulfilled') setReviews(rv.value.content || [])
-      if (l.status === 'fulfilled') setListings(l.value)
-    }).finally(() => setLoading(false))
-    checkAccess()
-  }, [sellerId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const accessQ = useQuery({
+    queryKey: queryKeys.sellerProfileAccess(sellerId),
+    queryFn: () => paymentApi.profileAccess(sellerId),
+    enabled: !!sellerId && !!user,
+  })
+
+  const loading = sellerQ.isLoading || trustQ.isLoading || ratingQ.isLoading || reviewsQ.isLoading || listingsQ.isLoading
 
   return {
-    seller, trust, rating, reviews, listings, hasAccess, loading, notFound,
-    refetchAccess: checkAccess,
+    seller: sellerQ.data ?? null,
+    trust: trustQ.data ?? null,
+    rating: ratingQ.data ?? null,
+    reviews: reviewsQ.data?.content ?? [],
+    listings: listingsQ.data ?? [],
+    hasAccess: !!user && !!accessQ.data?.hasAccess,
+    loading,
+    notFound: sellerQ.isError,
+    refetchAccess: accessQ.refetch,
     accessFee: platformConfig.profileAccessFeeKes,
   }
 }

@@ -10,7 +10,7 @@ export function useAuthGuard(allowedRoles?: Role[], redirectTo = '/dashboard') {
   useEffect(() => {
     if (!user) { router.replace('/login'); return }
     if (allowedRoles && !allowedRoles.includes(user.role)) router.replace(redirectTo)
-  }, [user, router, allowedRoles?.join(','), redirectTo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, router, allowedRoles?.join(','), redirectTo])
 
   const ready = !!user && (!allowedRoles || allowedRoles.includes(user.role))
   return { user, ready }

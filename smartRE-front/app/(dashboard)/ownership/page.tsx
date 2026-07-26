@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Landmark, Upload, CheckCircle, Clock, XCircle, AlertTriangle, FileText, Building2 } from 'lucide-react'
+import { Landmark, Upload, CheckCircle, Clock, XCircle, AlertTriangle, FileText, Building2, type LucideIcon } from 'lucide-react'
 import { propertyApi, verifApi } from '@/lib/api'
-import type { PropertyResponse } from '@/types'
+import type { PropertyResponse, OwnershipVerificationResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -40,7 +40,7 @@ const PROPERTY_TYPES = [
   { value: 'COMMERCIAL', label: 'Commercial' },
 ]
 
-const STATUS_INFO: Record<string, { icon: any; color: string; title: string; desc: string }> = {
+const STATUS_INFO: Record<string, { icon: LucideIcon; color: string; title: string; desc: string }> = {
   DRAFT: { icon: Clock, color: 'text-gray-400', title: 'Not started', desc: 'Provide title details and upload documents to begin.' },
   SUBMITTED: { icon: Clock, color: 'text-amber-500', title: 'Submitted', desc: 'Document hashes are being checked and AI screening is starting.' },
   AI_SCREENING: { icon: Clock, color: 'text-amber-500', title: 'AI screening', desc: 'Documents are being scored; Ardhisasa check runs at the end of this step.' },
@@ -54,20 +54,20 @@ const STATUS_INFO: Record<string, { icon: any; color: string; title: string; des
 
 export default function OwnershipPage() {
   const [properties, setProperties] = useState<PropertyResponse[]>([])
-  const [verifications, setVerifications] = useState<any[]>([])
+  const [verifications, setVerifications] = useState<OwnershipVerificationResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedPropertyId, setSelectedPropertyId] = useState('')
   const [starting, setStarting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [startForm, setStartForm] = useState({ propertyType: 'FREEHOLD', county: '', parcelNumber: '', titleDeedNumber: '', lrNumber: '' })
-  const [activeVerification, setActiveVerification] = useState<any | null>(null)
+  const [activeVerification, setActiveVerification] = useState<OwnershipVerificationResponse | null>(null)
   const [docCategory, setDocCategory] = useState('TITLE_DEED')
 
   const load = () => {
     setLoading(true)
     Promise.allSettled([propertyApi.my(), verifApi.myOwner()]).then(([p, v]) => {
       if (p.status === 'fulfilled') setProperties(p.value.content || [])
-      if (v.status === 'fulfilled') setVerifications(Array.isArray(v.value) ? v.value : [])
+      if (v.status === 'fulfilled') setVerifications(v.value)
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -143,7 +143,7 @@ export default function OwnershipPage() {
       {verifications.map(v => {
         const info = STATUS_INFO[v.status] || STATUS_INFO.DRAFT
         const property = properties.find(p => p.id === v.propertyId)
-        const uploadedCategories = (v.documents || []).map((d: any) => d.documentCategory)
+        const uploadedCategories = (v.documents || []).map(d => d.documentCategory)
         const canUpload = ['DRAFT', 'REJECTED'].includes(v.status)
         return (
           <Card key={v.id}>
@@ -177,7 +177,7 @@ export default function OwnershipPage() {
                   onUploaded={url => attachDoc(v.id, url)}/>
                 {(v.documents || []).length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {v.documents.map((d: any) => (
+                    {v.documents.map(d => (
                       <div key={d.id} className="flex items-center gap-1.5 bg-gray-50 dark:bg-[#2E2518] rounded-md px-2 py-1.5 text-[11px]">
                         <FileText size={11} className="text-gold-500 shrink-0"/>
                         <span className="truncate">{d.documentCategory?.replace(/_/g, ' ')}</span>

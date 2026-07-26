@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Building2, MapPin, Calendar, ShieldCheck, Trash2, ArrowLeft, LogIn, Landmark, FileCheck, Wallet, Lock, Check, X, AlertTriangle, UserSearch, ChevronLeft, ChevronRight } from 'lucide-react'
 import { propertyApi, viewingApi, reviewApi, verifApi, paymentApi } from '@/lib/api'
+import ReportButton from '@/components/report/ReportButton'
 import { usePlatformConfig } from '@/hooks/usePlatformConfig'
 import { useAuthStore } from '@/lib/store'
 import type { PropertyResponse, ReviewResponse, SellerRatingResponse, TrustStatusResponse } from '@/types'
@@ -192,7 +193,10 @@ export default function PropertyDetailClient() {
               <h1 className="font-display text-2xl font-bold text-gray-900 dark:text-white">{prop.title}</h1>
               <span className="font-display text-2xl font-bold text-gold-500 shrink-0">{fmt.currency(prop.price)}{prop.listingType === 'RENT' && <span className="text-sm font-normal text-muted">/mo</span>}</span>
             </div>
-            <p className="flex items-center gap-1 text-muted text-sm mt-1"><MapPin size={13}/>{prop.city || prop.subCounty || prop.county}, {prop.county}</p>
+            <div className="flex items-center justify-between mt-1">
+              <p className="flex items-center gap-1 text-muted text-sm"><MapPin size={13}/>{prop.city || prop.subCounty || prop.county}, {prop.county}</p>
+              {!isSeller && <ReportButton targetType="LISTING" targetId={prop.id} label="Report this listing"/>}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -241,9 +245,12 @@ export default function PropertyDetailClient() {
               <div className="space-y-4">
                 {reviews.map(r => (
                   <div key={r.id} className="border-b border-base last:border-0 pb-4 last:pb-0">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <RatingStars rating={r.rating}/>
-                      <span className="text-xs text-muted">{fmt.ago(r.createdAt)}</span>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <RatingStars rating={r.rating}/>
+                        <span className="text-xs text-muted">{fmt.ago(r.createdAt)}</span>
+                      </div>
+                      {!isSeller && <ReportButton targetType="REVIEW" targetId={r.id} defaultReason="FAKE_REVIEW"/>}
                     </div>
                     {r.comment && <p className="text-sm text-gray-600 dark:text-gray-300">{r.comment}</p>}
                   </div>
@@ -352,6 +359,10 @@ export default function PropertyDetailClient() {
           <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 rounded-lg p-3">
             An M-Pesa prompt will be sent to your phone. Funds are held in escrow, and the seller only gets paid after the deal is confirmed by an admin.
           </p>
+          <div className="flex items-center justify-between gap-2 text-[12px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg p-3">
+            <span>Never pay a seller directly outside this button - only escrow payments made here are protected.</span>
+            <ReportButton targetType="USER" targetId={prop.sellerId} label="Report" defaultReason="OFF_PLATFORM_PAYMENT_REQUEST" className="shrink-0"/>
+          </div>
           {!prop.fullyTrusted && (
             <label className="flex items-start gap-2 text-[12px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg p-3 cursor-pointer">
               <input type="checkbox" className="mt-0.5" checked={payAck} onChange={e => setPayAck(e.target.checked)}/>

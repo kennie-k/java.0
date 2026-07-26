@@ -1,38 +1,47 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import { revenueApi, userApi, propertyApi, verifApi } from '@/lib/api'
-import type { RevenueSummaryResponse, RevenueResponse, UserResponse, PropertyResponse } from '@/types'
+import { queryKeys } from '@/lib/queryKeys'
+
+const OWN_STATUSES = ['MINISTRY_LANDS_CHECK', 'ENCUMBRANCE_CHECK', 'LEGAL_REVIEW', 'HUMAN_REVIEW'] as const
 
 export function useAdminOverview() {
-  const [summary, setSummary] = useState<RevenueSummaryResponse | null>(null)
-  const [revenue, setRevenue] = useState<RevenueResponse[]>([])
-  const [users, setUsers] = useState<UserResponse[]>([])
-  const [properties, setProperties] = useState<PropertyResponse[]>([])
-  const [idQueue, setIdQueue] = useState<any[]>([])
-  const [ownQueue, setOwnQueue] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
 
-  useEffect(() => {
-    Promise.allSettled([
-      revenueApi.summary(),
-      revenueApi.all(),
-      userApi.allAdmin(),
-      propertyApi.search({ size: 500 }),
-      verifApi.idAdminQueue(),
-      verifApi.ownerAdminQueue(),
-    ]).then(([s, r, u, p, iq, oq]) => {
-      if (s.status === 'fulfilled') setSummary(s.value)
-      if (r.status === 'fulfilled') setRevenue(r.value.content || [])
-      if (u.status === 'fulfilled') setUsers(u.value.content || [])
-      if (p.status === 'fulfilled') setProperties(p.value.content || [])
-      if (iq.status === 'fulfilled') setIdQueue(iq.value.content || [])
-      if (oq.status === 'fulfilled') setOwnQueue(oq.value.content || [])
-    }).finally(() => setLoading(false))
-  }, [])
+  const [summaryQ, revenueQ, usersQ, propertiesQ, idQueueQ] = useQueries({
+    queries: [
+      { queryKey: queryKeys.revenueSummary, queryFn: () => revenueApi.summary() },
+      { queryKey: queryKeys.revenueAll, queryFn: () => revenueApi.all() },
+      { queryKey: queryKeys.users, queryFn: () => userApi.allAdmin() },
+      { queryKey: queryKeys.propertiesForOverview, queryFn: () => propertyApi.search({ size: 500 }) },
+      { queryKey: queryKeys.identityAdminQueue('HUMAN_REVIEW'), queryFn: () => verifApi.idAdminQueue() },
+    ],
+  })
+
+  const ownQueueQs = useQueries({
+    queries: OWN_STATUSES.map(status => ({
+      queryKey: queryKeys.ownershipAdminQueue(status),
+      queryFn: () => verifApi.ownerAdminQueue(status),
+    })),
+  })
+
+  const loading = summaryQ.isLoading || revenueQ.isLoading || usersQ.isLoading
+    || propertiesQ.isLoading || idQueueQ.isLoading || ownQueueQs.some(q => q.isLoading)
+
+  const summary = summaryQ.data ?? null
+  const revenue = revenueQ.data?.content ?? []
+  const users = usersQ.data?.content ?? []
+  const properties = propertiesQ.data?.content ?? []
+  const idQueue = idQueueQ.data?.content ?? []
+  const ownQueue = useMemo(
+    () => ownQueueQs.flatMap(q => q.data?.content ?? []),
+    [ownQueueQs]
+  )
 
   const stats = useMemo(() => {
     const buyers = users.filter(u => u.role === 'BUYER').length
     const sellers = users.filter(u => u.role === 'SELLER').length
+    const agents = users.filter(u => u.role === 'AGENT').length
     const admins = users.filter(u => u.role === 'ADMIN').length
     const verifiedUsers = users.filter(u => u.verified).length
     const verifiedPct = users.length ? Math.round((verifiedUsers / users.length) * 100) : 0
@@ -69,11 +78,11 @@ export function useAdminOverview() {
     })
     const trendChart = Object.entries(byMonth).map(([name, value]) => ({ name, value }))
 
-    const fraudStrikes = idQueue.reduce((s, v: any) => s + (v.fraudStrikeCount || 0), 0)
-    const banned = idQueue.filter((v: any) => v.permanentlyBanned).length
+    const fraudStrikes = idQueue.reduce((s, v) => s + (v.fraudStrikeCount || 0), 0)
+    const banned = idQueue.filter(v => v.permanentlyBanned).length
 
     return {
-      buyers, sellers, admins, verifiedUsers, verifiedPct,
+      buyers, sellers, agents, admins, verifiedUsers, verifiedPct,
       active, draft, pending, closed, fullyTrusted, avgPrice, totalViews,
       typeChart, topCounties, commission, viewingFee, pendingPayout, totalPayout,
       topSellers, trendChart, fraudStrikes, banned,

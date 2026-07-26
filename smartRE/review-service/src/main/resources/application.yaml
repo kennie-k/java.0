@@ -47,7 +47,9 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       auto-offset-reset: earliest
       properties:
-        spring.json.trusted.packages: "com.kenyarealestate.*" 
+        spring.json.trusted.packages: "com.kenyarealestate.*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.kenyarealestate.review.kafka.Events$PaymentCompletedEvent
 
 server:
   port: 8086

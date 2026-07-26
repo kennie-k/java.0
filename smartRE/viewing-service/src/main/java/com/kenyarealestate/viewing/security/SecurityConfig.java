@@ -6,7 +6,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 public class SecurityConfig {
     private final JwtAuthenticationFilter jwtFilter;
-    public SecurityConfig(JwtAuthenticationFilter f) { this.jwtFilter=f; }
+    private final InternalSecretFilter internalSecretFilter;
+    public SecurityConfig(JwtAuthenticationFilter f, InternalSecretFilter isf) { this.jwtFilter=f; this.internalSecretFilter=isf; }
     @Bean public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -14,6 +15,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/viewings/internal/**").permitAll()
                 .requestMatchers("/swagger-ui/**","/v3/api-docs/**","/actuator/**").permitAll()
                 .anyRequest().authenticated())
+            .addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

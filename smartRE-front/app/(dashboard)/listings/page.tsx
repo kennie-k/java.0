@@ -6,6 +6,7 @@ import { Building2, Plus, MapPin, Eye } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useMyListings } from '@/hooks/useMyListings'
+import { SELLER_ROLES } from '@/lib/roles'
 import Button from '@/components/ui/Button'
 import { Card, StatCard } from '@/components/ui/Card'
 import { StatusBadge, TrustBadge } from '@/components/ui/Badge'
@@ -13,7 +14,7 @@ import { EmptyState, SkeletonCard, PageLoader } from '@/components/ui/Modal'
 import { fmt } from '@/lib/utils'
 
 export default function MyListingsPage() {
-  const { ready } = useAuthGuard(['SELLER'], '/dashboard')
+  const { ready } = useAuthGuard(SELLER_ROLES, '/dashboard')
   const { items, loading, active, inReview, closed, totalViews, hasMore, loadMore, loadingMore } = useMyListings()
 
   const viewsChart = useMemo(() => {
@@ -94,7 +95,7 @@ export default function MyListingsPage() {
 
       {hasMore && (
         <div className="flex justify-center">
-          <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>Load more</Button>
+          <Button variant="secondary" size="sm" loading={loadingMore} onClick={() => loadMore()}>Load more</Button>
         </div>
       )}
     </div>

@@ -31,6 +31,7 @@ public class PaymentEventPublisher {
                 .amount(payment.getAmount())
                 .currency(payment.getCurrency())
                 .mpesaReceiptNumber(payment.getMpesaReceiptNumber())
+                .paymentType(payment.getPaymentType().name())
                 .completedAt(LocalDateTime.now())
                 .build();
         kafkaTemplate.send(topic, payment.getId().toString(), event)

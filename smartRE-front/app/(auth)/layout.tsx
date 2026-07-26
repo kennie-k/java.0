@@ -12,6 +12,7 @@ const benefits = [
 export default function AuthLayout({ children }:{ children:React.ReactNode }) {
   const path = usePathname()
   const isLogin = path === '/login'
+  const showTabs = path === '/login' || path === '/register'
 
   return (
     <div className="min-h-screen bg-surface-2 flex flex-col items-center justify-center p-4">
@@ -21,14 +22,16 @@ export default function AuthLayout({ children }:{ children:React.ReactNode }) {
           <span className="font-display font-bold text-xl text-gray-900 dark:text-white">SmartRE</span>
         </Link>
 
-        <div className="flex bg-gray-100 dark:bg-[#2E2518] rounded-xl p-1 mb-6">
-          <Link href="/login" className={`flex-1 text-center py-2 rounded-lg text-sm font-semibold transition-colors ${isLogin ? 'bg-white dark:bg-[#201911] text-gray-900 dark:text-white shadow-sm' : 'text-muted hover:text-gray-700 dark:hover:text-gray-200'}`}>
-            Sign in
-          </Link>
-          <Link href="/register" className={`flex-1 text-center py-2 rounded-lg text-sm font-semibold transition-colors ${!isLogin ? 'bg-white dark:bg-[#201911] text-gray-900 dark:text-white shadow-sm' : 'text-muted hover:text-gray-700 dark:hover:text-gray-200'}`}>
-            Create account
-          </Link>
-        </div>
+        {showTabs && (
+          <div className="flex bg-gray-100 dark:bg-[#2E2518] rounded-xl p-1 mb-6">
+            <Link href="/login" className={`flex-1 text-center py-2 rounded-lg text-sm font-semibold transition-colors ${isLogin ? 'bg-white dark:bg-[#201911] text-gray-900 dark:text-white shadow-sm' : 'text-muted hover:text-gray-700 dark:hover:text-gray-200'}`}>
+              Sign in
+            </Link>
+            <Link href="/register" className={`flex-1 text-center py-2 rounded-lg text-sm font-semibold transition-colors ${!isLogin ? 'bg-white dark:bg-[#201911] text-gray-900 dark:text-white shadow-sm' : 'text-muted hover:text-gray-700 dark:hover:text-gray-200'}`}>
+              Create account
+            </Link>
+          </div>
+        )}
 
         {children}
 

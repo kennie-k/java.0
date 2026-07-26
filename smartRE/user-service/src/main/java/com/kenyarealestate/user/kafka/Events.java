@@ -19,6 +19,8 @@ public class Events {
         private UUID propertyId;
         private LocalDateTime approvedAt;
         private LocalDateTime expiresAt;
+        private String parcelNumber;
+        private String titleDeedNumber;
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
@@ -31,6 +33,7 @@ public class Events {
         private BigDecimal amount;
         private String currency;
         private String mpesaReceiptNumber;
+        private String paymentType;
         private LocalDateTime completedAt;
     }
 

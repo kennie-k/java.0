@@ -1,30 +1,54 @@
 package com.kenyarealestate.user.controller;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.HandlerMapping;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.Base64;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/documents")
 public class DocumentUploadController {
 
+    private static final Pattern SAFE_CATEGORY = Pattern.compile("^[A-Za-z0-9_-]+$");
+
+    @Value("${storage.local-dir:/app/uploads}")
+    private String localDir;
+
+    @Value("${app.public-url:http://localhost:8080}")
+    private String publicUrl;
+
     @Value("${s3.enabled:false}")
     private boolean s3Enabled;
 
     @Value("${s3.endpoint:https://s3.amazonaws.com}")
     private String s3Endpoint;
+
+    @Value("${s3.region:us-east-1}")
+    private String s3Region;
 
     @Value("${s3.bucket:smartre-documents}")
     private String bucket;
@@ -36,7 +60,38 @@ public class DocumentUploadController {
     private String secretKey;
 
     @Value("${s3.public-base-url:https://smartre-documents.s3.amazonaws.com}")
-    private String publicBaseUrl;
+    private String s3PublicBaseUrl;
+
+    private S3Client s3Client;
+
+    @PostConstruct
+    void init() {
+        if (!s3Enabled) return;
+
+        if ("placeholder".equals(accessKey) || "placeholder".equals(secretKey)) {
+            throw new IllegalStateException(
+                    "s3.enabled=true but S3_ACCESS_KEY/S3_SECRET_KEY are still the placeholder default. " +
+                    "Set real credentials, or leave S3_ENABLED=false to use local disk storage instead.");
+        }
+
+        s3Client = S3Client.builder()
+                .endpointOverride(URI.create(s3Endpoint))
+                .region(Region.of(s3Region))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)))
+
+                .forcePathStyle(true)
+                .build();
+
+        try {
+            s3Client.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
+            log.info("S3 storage enabled - verified access to bucket '{}' at {}", bucket, s3Endpoint);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "s3.enabled=true but bucket '" + bucket + "' at " + s3Endpoint +
+                    " is not reachable with the configured credentials: " + e.getMessage(), e);
+        }
+    }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> upload(
@@ -46,6 +101,11 @@ public class DocumentUploadController {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "File is empty"));
+        }
+
+        if (!SAFE_CATEGORY.matcher(category).matches()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid category"));
         }
 
         String ext = getExtension(file.getOriginalFilename());
@@ -74,25 +134,9 @@ public class DocumentUploadController {
 
         String objectKey = "documents/" + category.toLowerCase() + "/" + UUID.randomUUID() + "." + ext;
 
-        if (!s3Enabled) {
-
-            String testUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/" +
-                    "Camponotus_flavomarginatus_ant.jpg/640px-Camponotus_flavomarginatus_ant.jpg" +
-                    "?dev-fingerprint=" + objectKey;
-            log.info("S3 disabled (dev mode) — returning test URL for category={}", category);
-            return ResponseEntity.ok(Map.of(
-                    "url", testUrl,
-                    "objectKey", objectKey,
-                    "category", category,
-                    "sizeBytes", file.getSize(),
-                    "note", "Development mode: real file not stored, using test URL"
-            ));
-        }
-
         try {
-
-            String url = uploadToS3(objectKey, file);
-            log.info("Document uploaded: category={} key={}", category, objectKey);
+            String url = s3Enabled ? uploadToS3(objectKey, file) : saveLocally(objectKey, file);
+            log.info("Document stored ({}): category={} key={}", s3Enabled ? "S3" : "local disk", category, objectKey);
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "url", url,
                     "objectKey", objectKey,
@@ -100,25 +144,58 @@ public class DocumentUploadController {
                     "sizeBytes", file.getSize()
             ));
         } catch (Exception e) {
-            log.error("S3 upload failed: {}", e.getMessage());
+            log.error("Upload failed for key={}: {}", objectKey, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Upload failed: " + e.getMessage()));
         }
     }
 
-    private String uploadToS3(String key, MultipartFile file) throws Exception {
+    @GetMapping("/files/**")
+    public ResponseEntity<Resource> serveFile(HttpServletRequest request) {
+        String path = (String) request.getAttribute(HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE);
+        String key = path.substring("/files/".length());
 
-        String uploadUrl = s3Endpoint + "/" + bucket + "/" + key;
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(uploadUrl))
-                .header("Content-Type", file.getContentType() != null
-                        ? file.getContentType() : "application/octet-stream")
-                .header("Authorization", "Bearer " + accessKey + ":" + secretKey)
-                .PUT(HttpRequest.BodyPublishers.ofByteArray(file.getBytes()))
-                .build();
-        client.send(request, HttpResponse.BodyHandlers.discarding());
-        return publicBaseUrl + "/" + key;
+        Path root = Paths.get(localDir).toAbsolutePath().normalize();
+        Path target = root.resolve(key).normalize();
+        if (!target.startsWith(root) || !Files.isRegularFile(target)) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok()
+                .contentType(contentTypeFor(target.toString()))
+                .cacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePublic())
+                .body(new FileSystemResource(target));
+    }
+
+    private String saveLocally(String key, MultipartFile file) throws Exception {
+        Path root = Paths.get(localDir).toAbsolutePath().normalize();
+        Path target = root.resolve(key).normalize();
+        if (!target.startsWith(root)) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+        Files.createDirectories(target.getParent());
+        file.transferTo(target);
+        return publicUrl + "/api/documents/files/" + key;
+    }
+
+    private String uploadToS3(String key, MultipartFile file) throws Exception {
+        s3Client.putObject(
+                PutObjectRequest.builder()
+                        .bucket(bucket)
+                        .key(key)
+                        .contentType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
+                        .build(),
+                RequestBody.fromBytes(file.getBytes()));
+        return s3PublicBaseUrl + "/" + key;
+    }
+
+    private MediaType contentTypeFor(String filename) {
+        return switch (getExtension(filename)) {
+            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
+            case "png" -> MediaType.IMAGE_PNG;
+            case "pdf" -> MediaType.APPLICATION_PDF;
+            default -> MediaType.APPLICATION_OCTET_STREAM;
+        };
     }
 
     private String getExtension(String filename) {

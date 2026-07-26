@@ -6,6 +6,7 @@ import { ShieldCheck, ShieldX, Phone, Calendar, Building2, Lock, Star, FileCheck
 import { useSellerProfile } from '@/hooks/useSellerProfile'
 import { useAuthStore } from '@/lib/store'
 import { paymentApi } from '@/lib/api'
+import ReportButton from '@/components/report/ReportButton'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -69,7 +70,10 @@ export default function SellerProfileClient() {
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-full bg-gold-500 text-white flex items-center justify-center font-bold text-lg shrink-0">{initial}</div>
           <div className="flex-1 min-w-0">
-            <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">{displayName}</h1>
+            <div className="flex items-center justify-between gap-2">
+              <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">{displayName}</h1>
+              <ReportButton targetType="USER" targetId={id} label="Report this seller" defaultReason="SCAM_AGENT"/>
+            </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[12px] text-muted">
               <span className="flex items-center gap-1"><Calendar size={11}/>Member since {fmt.date(seller.createdAt)}</span>
               <span className="flex items-center gap-1"><Building2 size={11}/>{listings.length} active listing{listings.length===1?'':'s'}</span>
@@ -160,6 +164,9 @@ export default function SellerProfileClient() {
         <div className="space-y-3.5">
           <p className="text-[13px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 rounded-md p-3">
             KES {accessFee} via M-Pesa. Access is granted the moment payment confirms and stays unlocked for this seller going forward.
+          </p>
+          <p className="text-[12px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-md p-3">
+            Never pay this seller directly outside the app - only payments made through SmartRE&apos;s escrow are protected.
           </p>
           <Input label="M-Pesa phone number" placeholder="254708374149" required value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}/>
         </div>

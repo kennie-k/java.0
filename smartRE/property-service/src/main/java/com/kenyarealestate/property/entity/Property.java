@@ -31,6 +31,7 @@ public class Property {
     @Builder.Default @Column(name="property_ownership_verified") private boolean propertyOwnershipVerified=false;
     @Column(name="parcel_number") private String parcelNumber;
     @Column(name="title_deed_number") private String titleDeedNumber;
+    @Builder.Default @Column(name="duplicate_parcel_flag") private boolean duplicateParcelFlag=false;
     @Builder.Default @Column(name="view_count") private Integer viewCount=0;
     @CreationTimestamp private LocalDateTime createdAt;
     @UpdateTimestamp   private LocalDateTime updatedAt;

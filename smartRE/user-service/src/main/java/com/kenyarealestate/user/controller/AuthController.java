@@ -44,6 +44,18 @@ public class AuthController {
                 .body(res);
     }
 
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        svc.requestPasswordReset(req.getEmail());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        svc.resetPassword(req.getToken(), req.getNewPassword());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest req) {
         String token = extractToken(req);

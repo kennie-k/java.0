@@ -9,7 +9,6 @@
   --gold: #C9A227;
   --gold-dark: #AD8620;
   --gold-glow: rgba(201,162,39,0.18);
-  --sidebar-w: 260px;
   --topbar-h: 64px;
 }
 
@@ -42,7 +41,7 @@
   .bg-surface-3 { @apply bg-gray-100 dark:bg-[#2E2518]; }
   .border-base { @apply border-gray-200 dark:border-[#3A2F1F]; }
   .card { @apply bg-white dark:bg-[#201911] border border-gray-200 dark:border-[#3A2F1F] rounded-xl shadow-sm; }
-  .card-hover { @apply card hover:shadow-lg hover:-translate-y-0.5 hover:border-gold-300 dark:hover:border-gold-500/40 transition-all duration-200; }
+  .card-hover { @apply card hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200; }
   .input-base {
     @apply w-full h-8 px-2.5 rounded-md border border-gray-200 dark:border-[#3A2F1F]
            bg-white dark:bg-[#201911] text-gray-900 dark:text-gray-100

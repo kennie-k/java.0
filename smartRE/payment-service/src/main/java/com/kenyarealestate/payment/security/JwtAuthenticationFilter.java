@@ -15,6 +15,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.*;
 
@@ -29,6 +30,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Value("${gateway.signing-secret}")
     private String signingSecret;
 
+    private static final Set<String> INTERNAL_IMPERSONATION_ALLOWED_PATHS = Set.of("/api/payments/initiate");
+
     public JwtAuthenticationFilter(JwtUtil j) { this.jwtUtil = j; }
 
     @Override
@@ -36,12 +39,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String secret = req.getHeader("X-Internal-Secret");
-        if (StringUtils.hasText(secret) && secret.equals(internalSecret)) {
+        if (StringUtils.hasText(secret) && secretMatches(secret, internalSecret)
+                && INTERNAL_IMPERSONATION_ALLOWED_PATHS.contains(req.getRequestURI())) {
             String userId = req.getHeader("X-Auth-UserId");
             String role   = req.getHeader("X-Auth-Role");
             String email  = req.getHeader("X-Auth-Email");
             if (!StringUtils.hasText(email)) email = "internal@smartre.system";
             if (!StringUtils.hasText(role))  role  = "SYSTEM";
+            if ("ADMIN".equalsIgnoreCase(role)) {
+                res.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                res.setContentType("application/json");
+                res.getWriter().write("{\"error\":\"Forbidden\"}");
+                return;
+            }
             var auth = new UsernamePasswordAuthenticationToken(
                     email, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
@@ -84,6 +94,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         chain.doFilter(req, res);
+    }
+
+    private boolean secretMatches(String provided, String expected) {
+        if (expected == null) return false;
+        return MessageDigest.isEqual(
+                provided.getBytes(StandardCharsets.UTF_8),
+                expected.getBytes(StandardCharsets.UTF_8));
     }
 
     private String sign(String email, String role, String userId) {

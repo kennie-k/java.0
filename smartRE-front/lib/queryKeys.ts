@@ -1,0 +1,18 @@
+export const queryKeys = {
+  users: ['users', 'admin', 'all'] as const,
+  revenueSummary: ['admin', 'revenue', 'summary'] as const,
+  revenueAll: ['admin', 'revenue', 'all'] as const,
+  propertiesForOverview: ['admin', 'properties', 'overview'] as const,
+  identityAdminQueue: (status: string) => ['admin', 'verification', 'identity', status] as const,
+  ownershipAdminQueue: (status: string) => ['admin', 'verification', 'ownership', status] as const,
+  reports: (status: string) => ['admin', 'reports', status] as const,
+  reportEvidence: (targetId: string) => ['admin', 'reports', 'evidence', targetId] as const,
+  agentApplications: (status: string) => ['admin', 'agent-applications', status] as const,
+  listingsAdmin: (status: string) => ['admin', 'listings', status] as const,
+  myListings: ['listings', 'mine'] as const,
+  sellerProfile: (id: string) => ['sellers', id] as const,
+  sellerProfileAccess: (id: string) => ['sellers', id, 'access'] as const,
+  propertySearch: (filters: Record<string, unknown>) => ['properties', 'search', filters] as const,
+  myViewings: (tab: string) => ['viewings', 'mine', tab] as const,
+  dashboard: (role: string) => ['dashboard', role] as const,
+}

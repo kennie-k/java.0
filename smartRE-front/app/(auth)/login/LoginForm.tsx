@@ -49,6 +49,9 @@ export default function LoginForm() {
             leftIcon={<Lock size={15}/>}
             rightIcon={<button type="button" onClick={() => setShow(s=>!s)} className="text-gray-400 hover:text-gray-600" aria-label={showPwd ? 'Hide password' : 'Show password'}>{showPwd?<EyeOff size={15}/>:<Eye size={15}/>}</button>}
             {...register('password')} error={errors.password?.message}/>
+          <div className="flex justify-end -mt-1.5">
+            <Link href="/forgot-password" className="text-[12px] font-medium text-gold-600 dark:text-gold-400 hover:underline">Forgot password?</Link>
+          </div>
           <Button type="submit" fullWidth loading={isSubmitting}>Sign in</Button>
         </form>
       </Card>

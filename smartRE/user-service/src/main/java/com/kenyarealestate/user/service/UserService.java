@@ -4,11 +4,18 @@ import com.kenyarealestate.user.dto.*;
 import com.kenyarealestate.user.entity.*;
 import com.kenyarealestate.user.repository.UserRepository;
 import com.kenyarealestate.user.security.JwtUtil;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.UUID;
 
 @Service @Transactional
@@ -18,12 +25,18 @@ public class UserService {
     private final JwtUtil jwtUtil;
     private final LoginAttemptService loginAttemptService;
     private final org.springframework.data.redis.core.RedisTemplate<String, Object> redis;
+    private final EmailService emailService;
 
     private static final String PROFILE_ACCESS_PREFIX = "profile:access:";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    @Value("${frontend.url:http://localhost:3000}")
+    private String frontendUrl;
 
     public UserService(UserRepository repo, PasswordEncoder encoder, JwtUtil jwtUtil, LoginAttemptService loginAttemptService,
-                        org.springframework.data.redis.core.RedisTemplate<String, Object> redis) {
+                        org.springframework.data.redis.core.RedisTemplate<String, Object> redis, EmailService emailService) {
         this.repo=repo; this.encoder=encoder; this.jwtUtil=jwtUtil; this.loginAttemptService=loginAttemptService; this.redis=redis;
+        this.emailService=emailService;
     }
 
     public AuthResponse register(RegisterRequest req) {
@@ -137,9 +150,63 @@ public class UserService {
         repo.save(u);
     }
 
+    public void requestPasswordReset(String email) {
+        User u = repo.findByEmail(email.toLowerCase().trim()).orElse(null);
+        if (u == null) return;
+
+        byte[] tokenBytes = new byte[32];
+        SECURE_RANDOM.nextBytes(tokenBytes);
+        String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+
+        u.setResetTokenHash(hashToken(rawToken));
+        u.setResetTokenExpiry(LocalDateTime.now().plusMinutes(30));
+        repo.save(u);
+
+        String link = frontendUrl + "/reset-password?token=" + rawToken;
+        emailService.send(u.getEmail(), "Reset your smartRE password",
+                "We received a request to reset your smartRE password.\n\n" +
+                "This link expires in 30 minutes:\n" + link + "\n\n" +
+                "If you didn't request this, you can safely ignore this email.");
+    }
+
+    public void resetPassword(String rawToken, String newPassword) {
+        User u = repo.findByResetTokenHash(hashToken(rawToken))
+                .orElseThrow(() -> new RuntimeException("Invalid or expired reset link"));
+        if (u.getResetTokenExpiry() == null || u.getResetTokenExpiry().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("Invalid or expired reset link");
+        }
+        u.setPassword(encoder.encode(newPassword));
+        u.setResetTokenHash(null);
+        u.setResetTokenExpiry(null);
+        repo.save(u);
+    }
+
+    private String hashToken(String rawToken) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public UserResponse promoteToAdmin(UUID id) {
         User u = repo.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         u.setRole(Role.ADMIN);
+        return toResp(repo.save(u));
+    }
+
+    public UserResponse ban(UUID id) {
+        User u = repo.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
+        if (u.getRole() == Role.ADMIN) throw new RuntimeException("Cannot ban an admin account");
+        u.setActive(false);
+        return toResp(repo.save(u));
+    }
+
+    public UserResponse unban(UUID id) {
+        User u = repo.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
+        u.setActive(true);
         return toResp(repo.save(u));
     }
 
@@ -149,7 +216,7 @@ public class UserService {
     }
     private UserResponse toResp(User u) {
         return UserResponse.builder().id(u.getId()).fullName(u.getFullName()).email(u.getEmail())
-                .phone(u.getPhone()).role(u.getRole().name()).isVerified(u.isVerified())
+                .phone(u.getPhone()).role(u.getRole().name()).isVerified(u.isVerified()).isActive(u.isActive())
                 .profileImage(u.getProfileImage()).createdAt(u.getCreatedAt())
                 .accountType(u.getAccountType()).companyName(u.getCompanyName())
                 .companyRegNumber(u.getCompanyRegNumber()).kraPin(u.getKraPin())

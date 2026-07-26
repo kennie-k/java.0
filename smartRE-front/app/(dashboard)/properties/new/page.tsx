@@ -1,13 +1,16 @@
 'use client'
 import { useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, ImageIcon, MapPin } from 'lucide-react'
-import { propertyApi } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { X, ImageIcon, MapPin, ShieldAlert, ShieldCheck, ArrowRight } from 'lucide-react'
+import { propertyApi, verifApi } from '@/lib/api'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
+import { SELLER_ROLES } from '@/lib/roles'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -35,12 +38,19 @@ type Form = z.infer<typeof schema>
 
 export default function NewPropertyPage() {
   const router = useRouter()
-  const { ready } = useAuthGuard(['SELLER'], '/dashboard')
+  const { ready } = useAuthGuard(SELLER_ROLES, '/dashboard')
   const { register, handleSubmit, formState:{ errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema), defaultValues:{ propertyType:'HOUSE', listingType:'SALE' }
   })
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const [coords, setCoords] = useState<{ lat?: number; lng?: number }>({})
+
+  const { data: verif, isLoading: verifLoading } = useQuery({
+    queryKey: ['verification', 'identity', 'mine'],
+    queryFn: () => verifApi.myId(),
+    retry: false,
+  })
+  const identityApproved = verif?.status === 'APPROVED' && !verif.expired
 
   const onSubmit = async (d: Form) => {
     try {
@@ -58,8 +68,30 @@ export default function NewPropertyPage() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">List a property</h1>
-        <p className="text-muted text-sm mt-1">Fill in the details below. Your listing will be in DRAFT until you complete identity verification.</p>
+        <p className="text-muted text-sm mt-1">Fill in the details below.</p>
       </div>
+
+      {!verifLoading && (
+        identityApproved ? (
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 flex items-center gap-3">
+            <ShieldCheck size={18} className="text-emerald-600 shrink-0"/>
+            <p className="text-[13px] text-emerald-800 dark:text-emerald-300">Your identity is verified. This listing will go live once its land title is also verified.</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3.5 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-white dark:bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0 shadow-sm">
+              <ShieldAlert size={16}/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-[13px] text-amber-900 dark:text-amber-200">Identity not verified yet</p>
+              <p className="text-[12px] text-amber-700 dark:text-amber-400/90 mt-0.5">You can still fill this in, but the listing will stay in Draft - invisible to buyers - until your identity is verified.</p>
+            </div>
+            <Link href="/verification" className="shrink-0">
+              <Button size="sm" variant="secondary">Verify now <ArrowRight size={13}/></Button>
+            </Link>
+          </div>
+        )
+      )}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <Card>
           <h2 className="font-display font-semibold mb-4">Basic details</h2>

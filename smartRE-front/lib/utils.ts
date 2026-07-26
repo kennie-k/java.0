@@ -16,9 +16,9 @@ export const fmt = {
 
 export const statusVariant = (s: string): 'success'|'warning'|'error'|'info'|'muted' => {
   const map: Record<string, 'success'|'warning'|'error'|'info'|'muted'> = {
-    ACTIVE:'success', APPROVED:'success', COMPLETED:'success', CONFIRMED:'success', PAID:'success', PAYOUT_COMPLETED:'success',
-    DRAFT:'muted', SOLD:'muted', RENTED:'muted', WITHDRAWN:'muted',
-    PENDING:'warning', PENDING_FEE:'warning', PENDING_VERIFICATION:'warning', STK_PUSHED:'warning', SUBMITTED:'warning', HUMAN_REVIEW:'warning', REQUIRES_RESUBMISSION:'warning', SUSPENDED:'warning',
+    ACTIVE:'success', APPROVED:'success', COMPLETED:'success', CONFIRMED:'success', PAID:'success', PAYOUT_COMPLETED:'success', RESOLVED:'success',
+    DRAFT:'muted', SOLD:'muted', RENTED:'muted', WITHDRAWN:'muted', DISMISSED:'muted',
+    PENDING:'warning', PENDING_FEE:'warning', PENDING_VERIFICATION:'warning', STK_PUSHED:'warning', SUBMITTED:'warning', HUMAN_REVIEW:'warning', REQUIRES_RESUBMISSION:'warning', SUSPENDED:'warning', OPEN:'warning',
     REQUESTED:'info', AI_SCREENING:'info', DOCUMENTS_UPLOADED:'info', MINISTRY_LANDS_CHECK:'info', ENCUMBRANCE_CHECK:'info', LEGAL_REVIEW:'info',
     FAILED:'error', REJECTED:'error', CANCELLED:'error', PAYOUT_FAILED:'error', EXPIRED:'error', NO_SHOW:'error', REFUNDED:'error',
   }

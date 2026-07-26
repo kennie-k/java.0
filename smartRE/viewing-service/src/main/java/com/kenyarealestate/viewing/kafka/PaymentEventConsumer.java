@@ -23,6 +23,7 @@ public class PaymentEventConsumer {
             @Payload Events.PaymentCompletedEvent event,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
         if (!"PAYMENT_COMPLETED".equals(event.getEventType())) return;
+        if (!"VIEWING_FEE".equals(event.getPaymentType())) return;
         try {
             viewingService.markFeeCompleted(null, event.getPaymentId());
         } catch (Exception e) {

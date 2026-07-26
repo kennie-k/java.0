@@ -1,6 +1,7 @@
 package com.kenyarealestate.payment.controller;
 
 import com.kenyarealestate.payment.dto.*;
+import com.kenyarealestate.payment.security.CallbackSecurity;
 import com.kenyarealestate.payment.security.JwtUtil;
 import com.kenyarealestate.payment.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +29,9 @@ public class PaymentController {
     @org.springframework.beans.factory.annotation.Value("${mpesa.callback-secret}")
     private String callbackSecret;
 
+    @org.springframework.beans.factory.annotation.Value("${mpesa.callback-allowed-ips:}")
+    private String callbackAllowedIps;
+
     public PaymentController(PaymentService svc, JwtUtil jwtUtil) {
         this.svc = svc;
         this.jwtUtil = jwtUtil;
@@ -43,8 +47,13 @@ public class PaymentController {
     @PostMapping("/mpesa/callback/{secret}")
     public ResponseEntity<Void> mpesaCallback(
             @PathVariable String secret, @RequestBody String rawBody, HttpServletRequest r) {
-        if (!callbackSecret.equals(secret)) {
-            log.warn("M-Pesa callback received with invalid secret from IP {}", r.getRemoteAddr());
+        String callerIp = getClientIp(r);
+        if (!CallbackSecurity.secretMatches(secret, callbackSecret)) {
+            log.warn("M-Pesa callback received with invalid secret from IP {}", callerIp);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (!CallbackSecurity.ipAllowed(callerIp, callbackAllowedIps)) {
+            log.warn("M-Pesa callback received from disallowed IP {}", callerIp);
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         try {

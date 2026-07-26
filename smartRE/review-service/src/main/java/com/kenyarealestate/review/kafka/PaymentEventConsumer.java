@@ -28,6 +28,7 @@ public class PaymentEventConsumer {
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
 
         if (!"PAYMENT_COMPLETED".equals(event.getEventType())) return;
+        if (!"FULL_PAYMENT".equals(event.getPaymentType()) && !"DEPOSIT".equals(event.getPaymentType())) return;
 
         log.info("Payment completed event received: paymentId={} buyerId={}",
                 event.getPaymentId(), event.getBuyerId());

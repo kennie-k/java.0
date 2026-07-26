@@ -1,3 +1,11 @@
+version: "3.8"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ════════════════════════════════════════════════════════════════
@@ -7,6 +15,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
@@ -21,6 +30,7 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     restart: unless-stopped
+    logging: *default-logging
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -36,6 +46,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -64,6 +75,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       kafka:
         condition: service_healthy
@@ -80,6 +92,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.51.0
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "9090:9090"
     volumes:
@@ -95,6 +108,7 @@ services:
   grafana:
     image: grafana/grafana:10.4.0
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "3001:3000"
     environment:
@@ -110,6 +124,7 @@ services:
   loki:
     image: grafana/loki:2.9.7
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "3100:3100"
     volumes:
@@ -120,6 +135,7 @@ services:
   promtail:
     image: grafana/promtail:2.9.7
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./observability/promtail.yml:/etc/promtail/config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -131,6 +147,7 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.27.0
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "9093:9093"
     volumes:
@@ -143,6 +160,7 @@ services:
   user-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: user_db
       POSTGRES_USER: postgres
@@ -158,6 +176,7 @@ services:
   user-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: user-db
       DB_PORT: 5432
@@ -185,6 +204,7 @@ services:
   verification-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: verification_db
       POSTGRES_USER: postgres
@@ -200,6 +220,7 @@ services:
   verification-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: verification-db
       DB_PORT: 5432
@@ -224,6 +245,7 @@ services:
   property-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: property_db
       POSTGRES_USER: postgres
@@ -239,6 +261,7 @@ services:
   property-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: property-db
       DB_PORT: 5432
@@ -263,6 +286,7 @@ services:
   viewing-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: viewing_db
       POSTGRES_USER: postgres
@@ -278,6 +302,7 @@ services:
   viewing-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: viewing-db
       DB_PORT: 5432
@@ -302,6 +327,7 @@ services:
   payment-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: payment_db
       POSTGRES_USER: postgres
@@ -317,6 +343,7 @@ services:
   payment-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: payment-db
       DB_PORT: 5432
@@ -341,6 +368,7 @@ services:
   review-db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: review_db
       POSTGRES_USER: postgres
@@ -356,6 +384,7 @@ services:
   review-pgbouncer:
     image: edoburu/pgbouncer:1.21.0-p1
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DB_HOST: review-db
       DB_PORT: 5432
@@ -384,6 +413,7 @@ services:
   user-service:
     build: ./user-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://user-pgbouncer:5432/user_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -393,9 +423,21 @@ services:
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       S3_ENABLED: ${S3_ENABLED:-false}
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+      S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-smartre-documents}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-placeholder}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-placeholder}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-https://smartre-documents.s3.amazonaws.com}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+      VERIFICATION_SERVICE_URL: http://verification-service:8082
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@smartre.co.ke}
+    volumes:
+      - user-uploads-data:/app/uploads
     depends_on:
       user-pgbouncer:
         condition: service_healthy
@@ -413,6 +455,7 @@ services:
   verification-service:
     build: ./verification-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://verification-pgbouncer:5432/verification_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -444,6 +487,7 @@ services:
   property-service:
     build: ./property-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://property-pgbouncer:5432/property_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -473,6 +517,7 @@ services:
   viewing-service:
     build: ./viewing-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://viewing-pgbouncer:5432/viewing_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -502,6 +547,7 @@ services:
   payment-service:
     build: ./payment-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://payment-pgbouncer:5432/payment_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -542,6 +588,7 @@ services:
   review-service:
     build: ./review-service
     restart: on-failure
+    logging: *default-logging
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://review-pgbouncer:5432/review_db?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: postgres
@@ -567,6 +614,7 @@ services:
   api-gateway:
     build: ./api-gateway
     restart: on-failure
+    logging: *default-logging
     ports:
       - "8080:8080"
     environment:
@@ -597,6 +645,7 @@ services:
       start_period: 90s
 
 volumes:
+  user-uploads-data:
   redis-data:
   kafka-data:
   zookeeper-data:

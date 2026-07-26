@@ -34,7 +34,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/properties/internal/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/swagger-ui.html",
                                  "/v3/api-docs/**", "/actuator/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/properties").hasRole("SELLER")
+                .requestMatchers("/api/properties/admin/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/properties").hasAnyRole("SELLER", "AGENT")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class)

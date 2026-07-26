@@ -94,6 +94,12 @@ public class User {
     @Column(name = "last_login_ip")
     private String lastLoginIp;
 
+    @Column(name = "reset_token_hash")
+    private String resetTokenHash;
+
+    @Column(name = "reset_token_expiry")
+    private LocalDateTime resetTokenExpiry;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

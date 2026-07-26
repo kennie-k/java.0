@@ -27,14 +27,62 @@ spring:
       routes:
 
         # ── AUTH ─────────────────────────────────────────────────
+        - id: auth-register-strict
+          uri: http://user-service:8081
+          predicates:
+            - Path=/api/auth/register
+            - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+
+        - id: auth-forgot-password-strict
+          uri: http://user-service:8081
+          predicates:
+            - Path=/api/auth/forgot-password
+            - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+
         - id: auth-open
           uri: http://user-service:8081
           predicates: [Path=/api/auth/**]
 
         # ── USERS ────────────────────────────────────────────────
+        - id: user-me-secured
+          uri: http://user-service:8081
+          predicates: [Path=/api/users/me,/api/users/me/password]
+          filters: [AuthFilter]
+
+        - id: user-admin-secured
+          uri: http://user-service:8081
+          predicates: [Path=/api/users/admin/**]
+          filters: [AuthFilter]
+
+        - id: user-detail-open
+          uri: http://user-service:8081
+          predicates:
+            - Path=/api/users/{id}
+            - Method=GET
+
         - id: user-secured
           uri: http://user-service:8081
           predicates: [Path=/api/users/**]
+          filters: [AuthFilter]
+
+        # ── AGENT APPLICATIONS ───────────────────────────────────
+        - id: agent-applications-secured
+          uri: http://user-service:8081
+          predicates: [Path=/api/agent-applications/**]
           filters: [AuthFilter]
 
         # ── VERIFICATION ─────────────────────────────────────────
@@ -56,6 +104,13 @@ spring:
           filters: [AuthFilter]
 
         # ── PROPERTIES ───────────────────────────────────────────
+        - id: property-my-secured
+          uri: http://property-service:8083
+          predicates:
+            - Path=/api/properties/my
+            - Method=GET
+          filters: [AuthFilter]
+
         - id: property-search-open
           uri: http://property-service:8083
           predicates:
@@ -130,6 +185,19 @@ spring:
           predicates: [Path=/api/reviews/**]
           filters: [AuthFilter]
 
+
+        - id: document-files-public
+          uri: http://user-service:8081
+          predicates:
+            - Path=/api/documents/files/documents/property_image/**,/api/documents/files/documents/profile_image/**
+            - Method=GET
+
+        - id: document-files-secured
+          uri: http://user-service:8081
+          predicates:
+            - Path=/api/documents/files/**
+            - Method=GET
+          filters: [AuthFilter]
 
         - id: document-upload
           uri: http://user-service:8081

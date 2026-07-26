@@ -35,7 +35,8 @@ public class VerificationEventConsumer {
                 log.info("Activated all listings for seller {} via Kafka", event.getSellerId());
             } else if ("OWNERSHIP_APPROVED".equals(event.getEventType())
                     && event.getPropertyId() != null) {
-                propertyService.markOwnershipVerified(event.getPropertyId(), null, null);
+                propertyService.markOwnershipVerified(event.getPropertyId(),
+                        event.getParcelNumber(), event.getTitleDeedNumber());
                 log.info("Marked ownership verified for property {} via Kafka", event.getPropertyId());
             }
         } catch (Exception e) {

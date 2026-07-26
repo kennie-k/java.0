@@ -31,6 +31,7 @@ public class PaymentService {
     private final MpesaRawCallbackRepository rawCallbackRepo;
     private final ReceiptService receiptService;
     private final org.springframework.data.redis.core.RedisTemplate<String, Object> redis;
+    private final RevenueService revenueService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String PROFILE_ACCESS_PREFIX = "profile:access:";
@@ -58,7 +59,8 @@ public class PaymentService {
                           MpesaRawCallbackRepository rawCallbackRepo,
                           ReceiptService receiptService,
                           org.springframework.data.redis.core.RedisTemplate<String, Object> redis,
-                          com.kenyarealestate.payment.client.PropertyServiceClient propertyServiceClient) {
+                          com.kenyarealestate.payment.client.PropertyServiceClient propertyServiceClient,
+                          RevenueService revenueService) {
         this.repo = repo;
         this.mpesaClient = mpesaClient;
         this.lockService = lockService;
@@ -68,6 +70,7 @@ public class PaymentService {
         this.receiptService = receiptService;
         this.redis = redis;
         this.propertyServiceClient = propertyServiceClient;
+        this.revenueService = revenueService;
     }
 
     private void grantProfileAccess(UUID buyerId, UUID sellerId) {
@@ -266,6 +269,10 @@ public class PaymentService {
             eventPublisher.publishPaymentCompleted(payment);
             if (payment.getPaymentType() == PaymentType.PROFILE_ACCESS) {
                 grantProfileAccess(payment.getBuyerId(), payment.getSellerId());
+            }
+            if (payment.getPaymentType() == PaymentType.VIEWING_FEE) {
+                revenueService.recordViewingFee(payment.getId(), payment.getBuyerId(),
+                        payment.getSellerId(), payment.getPropertyId());
             }
             log.info("Payment COMPLETED paymentId={} receipt={}", payment.getId(), receipt);
         } else {

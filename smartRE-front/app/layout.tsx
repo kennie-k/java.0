@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Toaster } from 'react-hot-toast'
+import Providers from './providers'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -26,7 +27,7 @@ export default function RootLayout({ children }:{ children: React.ReactNode }) {
         `}} />
       </head>
       <body>
-        {children}
+        <Providers>{children}</Providers>
         <Toaster position="top-right" toastOptions={{
           style:{ background:'var(--toast-bg,#fff)', color:'#111', border:'1px solid #e5e7eb', borderRadius:10 },
           success:{ iconTheme:{ primary:'#C9A227', secondary:'#fff' } },

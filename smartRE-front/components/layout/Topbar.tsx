@@ -4,12 +4,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Menu, Sun, Moon, LogOut, User, Settings, ChevronDown } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
+import { useUIStore, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/lib/uiStore'
 import { authApi } from '@/lib/api'
 import { cn, fmt } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
 export default function Topbar({ onMenu, title }:{ onMenu():void; title?:string }) {
   const { user, logout } = useAuthStore()
+  const collapsed = useUIStore(s => s.collapsed)
   const router = useRouter()
   const [dark, setDark] = useState(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
   const [menu, setMenu] = useState(false)
@@ -28,16 +30,14 @@ export default function Topbar({ onMenu, title }:{ onMenu():void; title?:string 
   return (
     <header className="fixed top-0 right-0 left-0 z-30 h-16 bg-white/90 dark:bg-[#0B0B18]/90 backdrop-blur-md border-b border-base flex items-center gap-3 px-4">
       <button onClick={onMenu} className="lg:hidden btn-ghost !h-9 !w-9 !px-0" aria-label="Open menu"><Menu size={18}/></button>
-      <div className="hidden lg:block shrink-0" style={{width:'var(--sidebar-w)'}} />
+      <div className="hidden lg:block shrink-0 transition-[width] duration-300 ease-in-out" style={{width: collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH}} />
       {title && <h1 className="font-display font-semibold text-lg text-gray-900 dark:text-white hidden sm:block">{title}</h1>}
       <div className="flex-1"/>
 
-      {/* Theme */}
       <button onClick={toggleTheme} className="btn-ghost !h-9 !w-9 !px-0" title="Toggle theme" aria-label="Toggle theme">
         {dark ? <Sun size={17}/> : <Moon size={17}/>}
       </button>
 
-      {/* User menu */}
       {user && (
         <div className="relative">
           <button onClick={() => setMenu(m => !m)}

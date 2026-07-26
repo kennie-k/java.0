@@ -175,6 +175,7 @@ public class PropertyService {
                 propertyType, listingType,
                 req.getMinPrice(), req.getMaxPrice(),
                 req.getMinBedrooms(), req.getKeyword(),
+                req.isVerifiedOnly(),
                 pageable);
 
         Page<PropertyResponse> result = page.map(this::toResponse);
@@ -213,28 +214,67 @@ public class PropertyService {
                 .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
         String prevStatus = p.getStatus().name();
         p.setPropertyOwnershipVerified(true);
+        boolean duplicateDetected = false;
         if (parcelNumber != null && !parcelNumber.isBlank()) {
             List<Property> duplicates = repo.findByParcelNumberAndIdNot(parcelNumber, propertyId);
             if (!duplicates.isEmpty()) {
+                duplicateDetected = true;
+                p.setDuplicateParcelFlag(true);
                 log.warn("ALERT: parcel number {} is already used by {} other listing(s): {}",
                         parcelNumber, duplicates.size(),
                         duplicates.stream().map(d -> d.getId().toString()).collect(java.util.stream.Collectors.joining(",")));
                 auditService.log(propertyId, "DUPLICATE_PARCEL_DETECTED",
                         prevStatus, prevStatus,
                         null, "SYSTEM", null,
-                        "Parcel number " + parcelNumber + " already used by " + duplicates.size() + " other listing(s)");
+                        "Parcel number " + parcelNumber + " already used by " + duplicates.size()
+                                + " other listing(s) - activation blocked pending admin review");
             }
             p.setParcelNumber(parcelNumber);
         }
         if (titleDeedNumber != null && !titleDeedNumber.isBlank()) p.setTitleDeedNumber(titleDeedNumber);
-        if (p.isSellerIdentityVerified()) p.setStatus(ListingStatus.ACTIVE);
+        if (p.isSellerIdentityVerified() && !duplicateDetected) p.setStatus(ListingStatus.ACTIVE);
         repo.save(p);
         auditService.log(propertyId, "OWNERSHIP_VERIFIED_ACTIVATION",
                 prevStatus, p.getStatus().name(),
                 null, "SYSTEM", null,
-                "Activated via Kafka OWNERSHIP_APPROVED event");
+                duplicateDetected
+                        ? "Ownership verified but held pending admin review due to duplicate parcel number"
+                        : "Activated via Kafka OWNERSHIP_APPROVED event");
         evictDetailCache(propertyId);
         evictSearchCache();
+    }
+
+    public PropertyResponse adminSuspend(UUID propertyId, UUID adminId) {
+        Property p = repo.findById(propertyId)
+                .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
+        String prevStatus = p.getStatus().name();
+        p.setStatus(ListingStatus.SUSPENDED);
+        Property saved = repo.save(p);
+        auditService.log(propertyId, "ADMIN_SUSPENDED", prevStatus, saved.getStatus().name(),
+                adminId, "ADMIN", null, "Listing suspended by admin");
+        evictDetailCache(propertyId);
+        evictSearchCache();
+        return toResponse(saved);
+    }
+
+    public PropertyResponse adminReactivate(UUID propertyId, UUID adminId) {
+        Property p = repo.findById(propertyId)
+                .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
+        String prevStatus = p.getStatus().name();
+        p.setStatus(ListingStatus.ACTIVE);
+        p.setDuplicateParcelFlag(false);
+        Property saved = repo.save(p);
+        auditService.log(propertyId, "ADMIN_REACTIVATED", prevStatus, saved.getStatus().name(),
+                adminId, "ADMIN", null, "Listing reactivated by admin");
+        evictDetailCache(propertyId);
+        evictSearchCache();
+        return toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PropertyResponse> adminGetAll(ListingStatus status, Pageable pageable) {
+        Page<Property> page = status != null ? repo.findByStatus(status, pageable) : repo.findAll(pageable);
+        return page.map(this::toResponse);
     }
 
     private Property findByIdAndSeller(UUID id, UUID sellerId) {
@@ -258,6 +298,7 @@ public class PropertyService {
         return CACHE_SEARCH_PREFIX + r.getCounty() + ":" + r.getCity() + ":" +
                 r.getPropertyType() + ":" + r.getListingType() + ":" + r.getKeyword() + ":" +
                 r.getMinPrice() + ":" + r.getMaxPrice() + ":" + r.getMinBedrooms() + ":" +
+                r.isVerifiedOnly() + ":" +
                 r.getPage() + ":" + r.getSize() + ":" + r.getSortBy() + ":" + r.getDirection();
     }
 
@@ -277,6 +318,7 @@ public class PropertyService {
                 .sellerIdentityVerified(p.isSellerIdentityVerified())
                 .propertyOwnershipVerified(p.isPropertyOwnershipVerified())
                 .fullyTrusted(p.isSellerIdentityVerified() && p.isPropertyOwnershipVerified())
+                .duplicateParcelFlag(p.isDuplicateParcelFlag())
                 .parcelNumber(p.getParcelNumber()).titleDeedNumber(p.getTitleDeedNumber())
                 .viewCount(p.getViewCount())
                 .createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt())

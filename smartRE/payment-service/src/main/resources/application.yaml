@@ -70,6 +70,7 @@ mpesa:
   passkey:         ${MPESA_PASSKEY:placeholder}
   callback-url:    ${MPESA_CALLBACK_URL:https://your-domain.com/api/payments/mpesa/callback}
   callback-secret: ${MPESA_CALLBACK_SECRET}
+  callback-allowed-ips: ${MPESA_CALLBACK_ALLOWED_IPS:}
   auth-url:        ${MPESA_AUTH_URL:https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials}
   stk-push-url:    ${MPESA_STK_PUSH_URL:https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest}
   b2c-url:         ${MPESA_B2C_URL:https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}

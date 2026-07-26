@@ -34,6 +34,7 @@ public class SecurityConfig {
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 .requestMatchers("/api/verification/identity/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/verification/ownership/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/verification/reports/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class)

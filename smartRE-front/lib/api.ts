@@ -34,29 +34,32 @@ const de = <T>(url: string) => api.delete<T>(url).then(r => r.data)
 import type {
   AuthResponse, UserResponse, PropertyResponse, PageResponse,
   IdentityVerificationResponse, TrustStatusResponse,
+  OwnershipVerificationResponse,
   ViewingResponse, PaymentResponse, PaymentAuditResponse,
   PaymentReceiptResponse, RevenueSummaryResponse, RevenueResponse,
   ReviewResponse, SellerRatingResponse,
+  ReportResponse, AgentApplicationResponse,
 } from '@/types'
 
-// AUTH
 export const authApi = {
   login:    (d:{email:string;password:string}) => po<AuthResponse>('/api/auth/login', d),
   register: (d:object) => po<AuthResponse>('/api/auth/register', d),
   logout:   () => po('/api/auth/logout'),
+  forgotPassword: (email:string) => po<void>('/api/auth/forgot-password', { email }),
+  resetPassword:  (token:string, newPassword:string) => po<void>('/api/auth/reset-password', { token, newPassword }),
 }
 
-// USER
 export const userApi = {
   me:       () => g<UserResponse>('/api/users/me'),
   updateMe: (d:object) => pu<UserResponse>('/api/users/me', d),
   changePassword: (d:object) => pu<void>('/api/users/me/password', d),
   getById:  (id:string) => g<UserResponse>(`/api/users/${id}`),
-  allAdmin: () => g<PageResponse<UserResponse>>('/api/users/admin/all'),
+  allAdmin: (size = 500) => g<PageResponse<UserResponse>>('/api/users/admin/all', { size }),
   promote:  (id:string) => pu<UserResponse>(`/api/users/admin/${id}/promote`),
+  ban:      (id:string) => pu<UserResponse>(`/api/users/admin/${id}/ban`),
+  unban:    (id:string) => pu<UserResponse>(`/api/users/admin/${id}/unban`),
 }
 
-// PROPERTY
 export const propertyApi = {
   create:   (d:object) => po<PropertyResponse>('/api/properties', d),
   update:   (id:string, d:object) => pu<PropertyResponse>(`/api/properties/${id}`, d),
@@ -65,9 +68,11 @@ export const propertyApi = {
   search:   (p:object) => g<PageResponse<PropertyResponse>>('/api/properties/search', p),
   my:       (page = 0) => g<PageResponse<PropertyResponse>>('/api/properties/my', { page, size: 20 }),
   bySeller: (sid:string) => g<PropertyResponse[]>(`/api/properties/seller/${sid}`),
+  adminAll: (p?: { status?: string; page?: number; size?: number }) => g<PageResponse<PropertyResponse>>('/api/properties/admin/all', p),
+  adminSuspend:   (id:string) => pu<PropertyResponse>(`/api/properties/admin/${id}/suspend`),
+  adminReactivate:(id:string) => pu<PropertyResponse>(`/api/properties/admin/${id}/reactivate`),
 }
 
-// VERIFICATION
 export const verifApi = {
   trustStatus:  (uid:string) => g<TrustStatusResponse>(`/api/verification/trust-status/${uid}`),
   trustProp:    (uid:string, pid:string) => g<TrustStatusResponse>(`/api/verification/trust-status/${uid}/property/${pid}`),
@@ -75,21 +80,20 @@ export const verifApi = {
   uploadIdDoc:  (d:object) => po('/api/verification/identity/documents', d),
   submitId:     () => po<IdentityVerificationResponse>('/api/verification/identity/submit'),
   myId:         () => g<IdentityVerificationResponse>('/api/verification/identity/me'),
-  idAdminQueue: () => g<PageResponse<IdentityVerificationResponse>>('/api/verification/identity/admin/queue'),
+  idAdminQueue: (size = 500) => g<PageResponse<IdentityVerificationResponse>>('/api/verification/identity/admin/queue', { size }),
   idAdminReview:(id:string, d:object) => pu(`/api/verification/identity/admin/${id}/review`, d),
-  startOwner:   (d:object) => po('/api/verification/ownership/start', d),
-  uploadOwnerDoc:(id:string, d:object) => po(`/api/verification/ownership/${id}/documents`, d),
-  submitOwner:  (id:string) => po(`/api/verification/ownership/${id}/submit`),
-  myOwner:      () => g('/api/verification/ownership/me'),
-  ownerByProp:  (pid:string) => g(`/api/verification/ownership/property/${pid}`),
-  ownerAdminQueue: () => g<PageResponse<any>>('/api/verification/ownership/admin/queue', { status: 'MINISTRY_LANDS_CHECK' }),
-  ownerAdminMinistry:(id:string,ministryConfirmed:boolean,notes?:string) => puParams(`/api/verification/ownership/admin/${id}/ministry-check`,{ministryConfirmed,notes}),
-  ownerAdminEncumb:(id:string,encumbranceClear:boolean,notes?:string)   => puParams(`/api/verification/ownership/admin/${id}/encumbrance-check`,{encumbranceClear,notes}),
-  ownerAdminLegal:(id:string,d:object)    => pu(`/api/verification/ownership/admin/${id}/legal-check`,d),
-  ownerAdminFinal:(id:string,d:object)    => pu(`/api/verification/ownership/admin/${id}/final-decision`,d),
+  startOwner:   (d:object) => po<OwnershipVerificationResponse>('/api/verification/ownership/start', d),
+  uploadOwnerDoc:(id:string, d:object) => po<OwnershipVerificationResponse>(`/api/verification/ownership/${id}/documents`, d),
+  submitOwner:  (id:string) => po<OwnershipVerificationResponse>(`/api/verification/ownership/${id}/submit`),
+  myOwner:      () => g<OwnershipVerificationResponse[]>('/api/verification/ownership/me'),
+  ownerByProp:  (pid:string) => g<OwnershipVerificationResponse>(`/api/verification/ownership/property/${pid}`),
+  ownerAdminQueue: (status = 'MINISTRY_LANDS_CHECK', size = 500) => g<PageResponse<OwnershipVerificationResponse>>('/api/verification/ownership/admin/queue', { status, size }),
+  ownerAdminMinistry:(id:string,ministryConfirmed:boolean,notes?:string) => puParams<OwnershipVerificationResponse>(`/api/verification/ownership/admin/${id}/ministry-check`,{ministryConfirmed,notes}),
+  ownerAdminEncumb:(id:string,encumbranceClear:boolean,notes?:string)   => puParams<OwnershipVerificationResponse>(`/api/verification/ownership/admin/${id}/encumbrance-check`,{encumbranceClear,notes}),
+  ownerAdminLegal:(id:string,d:object)    => pu<OwnershipVerificationResponse>(`/api/verification/ownership/admin/${id}/legal-check`,d),
+  ownerAdminFinal:(id:string,d:object)    => pu<OwnershipVerificationResponse>(`/api/verification/ownership/admin/${id}/final-decision`,d),
 }
 
-// VIEWING
 export const viewingApi = {
   schedule:      (d:object) => po<ViewingResponse>('/api/viewings', d),
   myBuyer:       (page = 0) => g<PageResponse<ViewingResponse>>('/api/viewings/my/buyer', { page, size: 20 }),
@@ -100,7 +104,6 @@ export const viewingApi = {
   cancel:        (id:string, d:object) => pu<ViewingResponse>(`/api/viewings/${id}/cancel`, d),
 }
 
-// PAYMENT
 export const paymentApi = {
   initiate: (d:object) => po<PaymentResponse>('/api/payments/initiate', d),
   getById:  (id:string) => g<PaymentResponse>(`/api/payments/${id}`),
@@ -112,10 +115,9 @@ export const paymentApi = {
   profileAccess: (sellerId:string) => g<{hasAccess:boolean}>(`/api/payments/profile-access/${sellerId}`),
 }
 
-// REVENUE
 export const revenueApi = {
   summary:      () => g<RevenueSummaryResponse>('/api/revenue/summary'),
-  all:          () => g<PageResponse<RevenueResponse>>('/api/revenue'),
+  all:          (size = 500) => g<PageResponse<RevenueResponse>>('/api/revenue', { size }),
   release:      (id:string, d:object) => pu(`/api/revenue/payments/${id}/release-escrow`, d),
   refund:       (id:string, reason:string) => pu<void>(`/api/revenue/payments/${id}/refund`, { reason }),
   audit:        (id:string) => g(`/api/revenue/payments/${id}/audit`),
@@ -123,7 +125,6 @@ export const revenueApi = {
   paymentReceipt:(id:string) => g(`/api/revenue/payments/${id}/receipt`),
 }
 
-// REVIEW
 export const reviewApi = {
   create:       (d:object) => po<ReviewResponse>('/api/reviews', d),
   byProperty:   (pid:string) => g<PageResponse<ReviewResponse>>(`/api/reviews/property/${pid}`),
@@ -132,7 +133,20 @@ export const reviewApi = {
   myReviews:    (page = 0) => g<PageResponse<ReviewResponse>>('/api/reviews/my', { page, size: 20 }),
 }
 
-// DOCUMENTS
+export const reportApi = {
+  create:      (d:object) => po<ReportResponse>('/api/verification/reports', d),
+  mine:        () => g<PageResponse<ReportResponse>>('/api/verification/reports/mine'),
+  adminQueue:  (status = 'OPEN', size = 500) => g<PageResponse<ReportResponse>>('/api/verification/reports/admin/queue', { status, size }),
+  adminResolve:(id:string, d:object) => pu<ReportResponse>(`/api/verification/reports/admin/${id}/resolve`, d),
+}
+
+export const agentApplicationApi = {
+  submit:     (d:object) => po<AgentApplicationResponse>('/api/agent-applications', d),
+  mine:       () => g<AgentApplicationResponse>('/api/agent-applications/mine'),
+  adminQueue: (status = 'SUBMITTED', size = 500) => g<PageResponse<AgentApplicationResponse>>('/api/agent-applications/admin/queue', { status, size }),
+  adminReview:(id:string, d:object) => pu<AgentApplicationResponse>(`/api/agent-applications/admin/${id}/review`, d),
+}
+
 export interface UploadResponse { url:string; objectKey:string; category:string; sizeBytes:number }
 export const documentApi = {
   upload: (file: File, category: string) => {

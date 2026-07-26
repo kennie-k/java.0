@@ -42,7 +42,6 @@ export default function PaymentsPage() {
         <p className="text-muted text-sm mt-1">Your M-Pesa payment history</p>
       </div>
 
-      {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card><p className="text-sm text-muted mb-1">Total paid</p><p className="font-display text-lg font-semibold text-gray-900 dark:text-white">{fmt.currency(total)}</p></Card>
         <Card><p className="text-sm text-muted mb-1">Completed</p><p className="font-display text-lg font-semibold text-emerald-600">{items.filter(p=>p.status==='COMPLETED').length}</p></Card>

@@ -15,6 +15,7 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
     Page<Property> findBySellerId(UUID sellerId, Pageable p);
     List<Property> findBySellerIdAndStatus(UUID sellerId, ListingStatus status);
     List<Property> findByParcelNumberAndIdNot(String parcelNumber, UUID id);
+    Page<Property> findByStatus(ListingStatus status, Pageable p);
 
     @Modifying
     @Query("UPDATE Property p SET p.viewCount = p.viewCount + 1 WHERE p.id = :id")
@@ -31,6 +32,7 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
                     " AND (:minBed IS NULL OR p.bedrooms >= :minBed)" +
                     " AND (:kw IS NULL OR (LOWER(p.title) LIKE LOWER(CONCAT('%',:kw,'%'))" +
                     "     OR LOWER(p.description) LIKE LOWER(CONCAT('%',:kw,'%'))))" +
+                    " AND (:verifiedOnly = FALSE OR (p.seller_identity_verified = TRUE AND p.property_ownership_verified = TRUE))" +
                     "  ",
             countQuery =
                     "SELECT COUNT(*) FROM properties p WHERE p.status = 'ACTIVE'" +
@@ -42,7 +44,8 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
                             " AND (:maxPrice IS NULL OR p.price <= CAST(:maxPrice AS NUMERIC))" +
                             " AND (:minBed IS NULL OR p.bedrooms >= :minBed)" +
                             " AND (:kw IS NULL OR (LOWER(p.title) LIKE LOWER(CONCAT('%',:kw,'%'))" +
-                            "     OR LOWER(p.description) LIKE LOWER(CONCAT('%',:kw,'%'))))",
+                            "     OR LOWER(p.description) LIKE LOWER(CONCAT('%',:kw,'%'))))" +
+                            " AND (:verifiedOnly = FALSE OR (p.seller_identity_verified = TRUE AND p.property_ownership_verified = TRUE))",
             nativeQuery = true)
     Page<Property> search(
             @Param("county") String county,
@@ -53,5 +56,6 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
             @Param("maxPrice") BigDecimal maxPrice,
             @Param("minBed") Integer minBed,
             @Param("kw") String kw,
+            @Param("verifiedOnly") boolean verifiedOnly,
             Pageable p);
 }

@@ -3,6 +3,7 @@ package com.kenyarealestate.payment.controller;
 import com.kenyarealestate.payment.dto.*;
 import com.kenyarealestate.payment.entity.MpesaRawCallback;
 import com.kenyarealestate.payment.repository.MpesaRawCallbackRepository;
+import com.kenyarealestate.payment.security.CallbackSecurity;
 import com.kenyarealestate.payment.security.JwtUtil;
 import com.kenyarealestate.payment.service.PaymentAuditService;
 import com.kenyarealestate.payment.service.ReceiptService;
@@ -36,6 +37,9 @@ public class RevenueController {
     @org.springframework.beans.factory.annotation.Value("${mpesa.callback-secret}")
     private String callbackSecret;
 
+    @org.springframework.beans.factory.annotation.Value("${mpesa.callback-allowed-ips:}")
+    private String callbackAllowedIps;
+
     public RevenueController(RevenueService svc, JwtUtil jwtUtil,
                               PaymentAuditService auditService,
                               ReceiptService receiptService,
@@ -55,7 +59,7 @@ public class RevenueController {
     @GetMapping
     public ResponseEntity<Page<RevenueResponse>> all(
             @RequestParam(defaultValue = "0")  @Min(0)       int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+            @RequestParam(defaultValue = "20") @Min(1) @Max(1000) int size) {
         return ResponseEntity.ok(svc.getAll(PageRequest.of(page, size)));
     }
 
@@ -102,9 +106,15 @@ public class RevenueController {
     }
 
     @PostMapping("/mpesa/b2c/callback/{secret}")
-    public ResponseEntity<Void> b2cCallback(@PathVariable String secret, @RequestBody String rawBody) {
-        if (!callbackSecret.equals(secret)) {
-            log.warn("B2C callback received with invalid secret");
+    public ResponseEntity<Void> b2cCallback(
+            @PathVariable String secret, @RequestBody String rawBody, HttpServletRequest r) {
+        String callerIp = getClientIp(r);
+        if (!CallbackSecurity.secretMatches(secret, callbackSecret)) {
+            log.warn("B2C callback received with invalid secret from IP {}", callerIp);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+        }
+        if (!CallbackSecurity.ipAllowed(callerIp, callbackAllowedIps)) {
+            log.warn("B2C callback received from disallowed IP {}", callerIp);
             return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
         }
         try {

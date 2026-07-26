@@ -48,7 +48,7 @@ public class UserController {
     @GetMapping("/admin/all")
     public ResponseEntity<Page<UserResponse>> getAll(
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(1000) int size,
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(defaultValue = "DESC") String direction) {
         Sort.Direction dir = direction.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -58,5 +58,15 @@ public class UserController {
     @PutMapping("/admin/{id}/promote")
     public ResponseEntity<UserResponse> promoteToAdmin(@PathVariable UUID id) {
         return ResponseEntity.ok(svc.promoteToAdmin(id));
+    }
+
+    @PutMapping("/admin/{id}/ban")
+    public ResponseEntity<UserResponse> ban(@PathVariable UUID id) {
+        return ResponseEntity.ok(svc.ban(id));
+    }
+
+    @PutMapping("/admin/{id}/unban")
+    public ResponseEntity<UserResponse> unban(@PathVariable UUID id) {
+        return ResponseEntity.ok(svc.unban(id));
     }
 }

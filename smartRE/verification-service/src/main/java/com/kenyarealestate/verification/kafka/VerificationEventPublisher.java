@@ -39,7 +39,8 @@ public class VerificationEventPublisher {
     }
 
     public void publishOwnershipApproved(UUID sellerId, UUID verificationId,
-                                          UUID propertyId, LocalDateTime approvedAt) {
+                                          UUID propertyId, LocalDateTime approvedAt,
+                                          String parcelNumber, String titleDeedNumber) {
         var event = Events.VerificationApprovedEvent.builder()
                 .eventType("OWNERSHIP_APPROVED")
                 .sellerId(sellerId)
@@ -47,6 +48,8 @@ public class VerificationEventPublisher {
                 .verificationType("OWNERSHIP")
                 .propertyId(propertyId)
                 .approvedAt(approvedAt)
+                .parcelNumber(parcelNumber)
+                .titleDeedNumber(titleDeedNumber)
                 .build();
         kafkaTemplate.send(topic, propertyId.toString(), event)
                 .whenComplete((result, ex) -> {

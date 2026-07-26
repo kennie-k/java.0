@@ -37,7 +37,7 @@ public class PropertyController {
     }
 
     @PutMapping("/{id}")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('SELLER')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('SELLER','AGENT')")
     public ResponseEntity<PropertyResponse> update(
             @PathVariable UUID id,
             @Valid @RequestBody UpdatePropertyRequest req,
@@ -46,7 +46,7 @@ public class PropertyController {
     }
 
     @DeleteMapping("/{id}")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('SELLER')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('SELLER','AGENT')")
     public ResponseEntity<Void> delete(@PathVariable UUID id, HttpServletRequest httpReq) {
         svc.delete(id, resolveUserId(httpReq));
         return ResponseEntity.noContent().build();
@@ -72,8 +72,9 @@ public class PropertyController {
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) Integer minBedrooms,
+            @RequestParam(defaultValue = "false") boolean verifiedOnly,
             @RequestParam(defaultValue = "0")  @Min(0)       int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(1000) int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "DESC") String direction) {
 
@@ -81,7 +82,8 @@ public class PropertyController {
         req.setCounty(county); req.setCity(city);
         req.setPropertyType(propertyType); req.setListingType(listingType);
         req.setKeyword(keyword); req.setMinPrice(minPrice); req.setMaxPrice(maxPrice);
-        req.setMinBedrooms(minBedrooms); req.setPage(page); req.setSize(size);
+        req.setMinBedrooms(minBedrooms); req.setVerifiedOnly(verifiedOnly);
+        req.setPage(page); req.setSize(size);
         req.setSortBy(sortBy); req.setDirection(direction);
         return ResponseEntity.ok(svc.search(req));
     }
@@ -96,6 +98,27 @@ public class PropertyController {
         Sort.Direction dir = direction.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return ResponseEntity.ok(svc.getMyListings(resolveUserId(httpReq),
                 PageRequest.of(page, size, Sort.by(dir, sortBy))));
+    }
+
+    @GetMapping("/admin/all")
+    public ResponseEntity<Page<PropertyResponse>> adminAll(
+            @RequestParam(required = false) com.kenyarealestate.property.entity.ListingStatus status,
+            @RequestParam(defaultValue = "0")  @Min(0)       int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(1000) int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "DESC") String direction) {
+        Sort.Direction dir = direction.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return ResponseEntity.ok(svc.adminGetAll(status, PageRequest.of(page, size, Sort.by(dir, sortBy))));
+    }
+
+    @PutMapping("/admin/{id}/suspend")
+    public ResponseEntity<PropertyResponse> adminSuspend(@PathVariable UUID id, HttpServletRequest httpReq) {
+        return ResponseEntity.ok(svc.adminSuspend(id, resolveUserId(httpReq)));
+    }
+
+    @PutMapping("/admin/{id}/reactivate")
+    public ResponseEntity<PropertyResponse> adminReactivate(@PathVariable UUID id, HttpServletRequest httpReq) {
+        return ResponseEntity.ok(svc.adminReactivate(id, resolveUserId(httpReq)));
     }
 
     @PutMapping("/internal/seller/{sellerId}/activate-all")

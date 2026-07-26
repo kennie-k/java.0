@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { User, Mail, Phone, Shield, ShieldCheck, Save, Landmark, Building2, Lock } from 'lucide-react'
 import { userApi, authApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
+import { isSellerOrAgent } from '@/lib/roles'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -126,7 +127,7 @@ export default function ProfilePage() {
         </div>
       </Card>
 
-      {user.role === 'SELLER' && (
+      {isSellerOrAgent(user) && (
         <Card>
           <h2 className="font-display font-semibold text-[13px] mb-1 flex items-center gap-1.5"><Landmark size={14} className="text-gold-500"/>Payout details</h2>
           <p className="text-[11px] text-muted mb-3.5">Where escrow funds are sent when an admin releases a completed sale.</p>

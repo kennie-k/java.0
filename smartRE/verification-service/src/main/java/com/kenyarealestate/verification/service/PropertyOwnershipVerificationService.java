@@ -435,7 +435,8 @@ public class PropertyOwnershipVerificationService {
                         verif.getParcelNumber(), verif.getTitleDeedNumber());
                 UUID sellerId = verif.getSellerIdentityVerification().getUserId();
                 eventPublisher.publishOwnershipApproved(sellerId, verif.getId(),
-                        verif.getPropertyId(), LocalDateTime.now());
+                        verif.getPropertyId(), LocalDateTime.now(),
+                        verif.getParcelNumber(), verif.getTitleDeedNumber());
                 trustStatusService.evictCache(sellerId);
             }
             case "REJECTED" -> {

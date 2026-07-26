@@ -106,16 +106,16 @@ export default function HomeClient() {
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
               <input value={keyword} onChange={e => setKeyword(e.target.value)}
                 placeholder="Search by title, estate, or keyword..."
-                className="w-full h-9 pl-8 pr-3 rounded-md bg-transparent text-[13px] placeholder:text-gray-400 focus:outline-none"/>
+                className="w-full h-9 pl-8 pr-3 rounded-md bg-transparent text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:bg-white dark:focus:bg-white/10"/>
             </div>
             <div className="relative sm:w-40">
               <MapPin size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
               <input value={county} onChange={e => setCounty(e.target.value)}
                 placeholder="County"
-                className="w-full h-9 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] placeholder:text-gray-400 focus:outline-none"/>
+                className="w-full h-9 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:bg-white dark:focus:bg-white/10"/>
             </div>
             <select value={listingType} onChange={e => setListingType(e.target.value)}
-              className="h-9 px-2.5 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] text-gray-700 dark:text-gray-200 focus:outline-none sm:w-32">
+              className="h-9 px-2.5 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] text-gray-700 dark:text-gray-200 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 sm:w-32">
               <option value="">Buy or rent</option>
               <option value="SALE">For sale</option>
               <option value="RENT">To rent</option>

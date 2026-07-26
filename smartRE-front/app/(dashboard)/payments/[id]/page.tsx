@@ -48,7 +48,7 @@ function PaymentDetail() {
       })
     }, 4000)
     return () => clearInterval(interval)
-  }, [id, payment?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, payment?.status])
 
   if (loading) return <PageLoader/>
   if (!payment) return <div className="text-center py-20 text-muted">Payment not found</div>

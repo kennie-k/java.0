@@ -274,4 +274,59 @@ class UserServiceTest {
         assertNull(res.getPhone());
         assertNull(res.getEmail());
     }
+
+    @Test
+    void ban_deactivatesUser() {
+        User u = buildUser(Role.SELLER);
+        u.setActive(true);
+        when(repo.findById(u.getId())).thenReturn(Optional.of(u));
+
+        userService.ban(u.getId());
+
+        assertFalse(u.isActive());
+        verify(repo).save(u);
+    }
+
+    @Test
+    void ban_rejectsBanningAnAdmin() {
+        User admin = buildUser(Role.ADMIN);
+        admin.setActive(true);
+        when(repo.findById(admin.getId())).thenReturn(Optional.of(admin));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> userService.ban(admin.getId()));
+
+        assertEquals("Cannot ban an admin account", ex.getMessage());
+        assertTrue(admin.isActive());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void ban_throwsWhenUserNotFound() {
+        UUID missingId = UUID.randomUUID();
+        when(repo.findById(missingId)).thenReturn(Optional.empty());
+
+        assertThrows(RuntimeException.class, () -> userService.ban(missingId));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void unban_reactivatesUser() {
+        User u = buildUser(Role.SELLER);
+        u.setActive(false);
+        when(repo.findById(u.getId())).thenReturn(Optional.of(u));
+
+        userService.unban(u.getId());
+
+        assertTrue(u.isActive());
+        verify(repo).save(u);
+    }
+
+    @Test
+    void unban_throwsWhenUserNotFound() {
+        UUID missingId = UUID.randomUUID();
+        when(repo.findById(missingId)).thenReturn(Optional.empty());
+
+        assertThrows(RuntimeException.class, () -> userService.unban(missingId));
+        verify(repo, never()).save(any());
+    }
 }

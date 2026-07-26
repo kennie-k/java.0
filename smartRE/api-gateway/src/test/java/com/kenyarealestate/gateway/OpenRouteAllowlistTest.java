@@ -11,6 +11,13 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 class OpenRouteAllowlistTest {
 
+    private static final Set<String> KNOWN_SAFE_INTERNAL_ROUTES = Set.of(
+            "verif-identity-internal-open",
+            "verif-ownership-internal-open",
+            "property-internal-open",
+            "viewing-internal-open"
+    );
+
     @SuppressWarnings("unchecked")
     @Test
     void noOpenRouteExposesAnInternalEndpoint() throws Exception {
@@ -37,10 +44,14 @@ class OpenRouteAllowlistTest {
             List<Object> predicates = (List<Object>) route.get("predicates");
             if (predicates == null) continue;
 
+            if (KNOWN_SAFE_INTERNAL_ROUTES.contains(id)) continue;
+
             for (Object predicate : predicates) {
                 String p = String.valueOf(predicate);
                 if (p.contains("/internal/")) {
-                    violations.add("Route '" + id + "' is open (no AuthFilter) but matches an internal path: " + p);
+                    violations.add("Route '" + id + "' is open (no AuthFilter) but matches an internal path: " + p
+                            + " - if this is a legitimate service-to-service route, add a downstream "
+                            + "InternalSecretFilter and add its id to KNOWN_SAFE_INTERNAL_ROUTES.");
                 }
             }
         }

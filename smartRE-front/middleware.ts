@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const PROTECTED_PREFIXES = ['/dashboard', '/listings', '/properties/new', '/verification', '/ownership', '/viewings', '/payments', '/reviews', '/profile', '/overview', '/revenue', '/users', '/verification-queue']
-const ADMIN_PREFIXES = ['/overview', '/revenue', '/users', '/verification-queue']
+const PROTECTED_PREFIXES = ['/dashboard', '/listings', '/properties/new', '/verification', '/ownership', '/viewings', '/payments', '/reviews', '/profile', '/agent-application', '/overview', '/revenue', '/users', '/verification-queue', '/manage-listings', '/reports', '/agent-applications']
+const ADMIN_PREFIXES = ['/overview', '/revenue', '/users', '/verification-queue', '/manage-listings', '/reports', '/agent-applications']
 
 function decode(token: string): { exp?: number; role?: string } | null {
   try {
@@ -40,5 +40,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/listings/:path*', '/properties/new', '/verification/:path*', '/ownership/:path*', '/viewings/:path*', '/payments/:path*', '/reviews/:path*', '/profile/:path*', '/overview/:path*', '/revenue/:path*', '/users/:path*', '/verification-queue/:path*'],
+  matcher: ['/dashboard/:path*', '/listings/:path*', '/properties/new', '/verification/:path*', '/ownership/:path*', '/viewings/:path*', '/payments/:path*', '/reviews/:path*', '/profile/:path*', '/agent-application/:path*', '/overview/:path*', '/revenue/:path*', '/users/:path*', '/verification-queue/:path*', '/manage-listings/:path*', '/reports/:path*', '/agent-applications/:path*'],
 }

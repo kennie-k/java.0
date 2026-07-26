@@ -1,5 +1,5 @@
-// ── AUTH ──────────────────────────────────────────────────────────────────────
-export type Role = 'BUYER' | 'SELLER' | 'ADMIN'
+
+export type Role = 'BUYER' | 'SELLER' | 'AGENT' | 'ADMIN'
 
 export interface AuthResponse {
   token: string
@@ -10,7 +10,6 @@ export interface AuthResponse {
   verified: boolean
 }
 
-// ── USER ──────────────────────────────────────────────────────────────────────
 export interface UserResponse {
   id: string
   fullName: string
@@ -18,6 +17,7 @@ export interface UserResponse {
   phone?: string
   role: Role
   verified: boolean
+  active: boolean
   profileImage?: string
   accountType?: 'INDIVIDUAL' | 'COMPANY'
   companyName?: string
@@ -35,7 +35,6 @@ export interface UserResponse {
   createdAt: string
 }
 
-// ── PROPERTY ──────────────────────────────────────────────────────────────────
 export type PropertyType = 'HOUSE' | 'APARTMENT' | 'LAND' | 'COMMERCIAL' | 'VILLA'
 export type ListingType = 'SALE' | 'RENT'
 export type ListingStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED' | 'SOLD' | 'RENTED' | 'WITHDRAWN'
@@ -63,6 +62,7 @@ export interface PropertyResponse {
   sellerIdentityVerified: boolean
   propertyOwnershipVerified: boolean
   fullyTrusted: boolean
+  duplicateParcelFlag?: boolean
   parcelNumber?: string
   titleDeedNumber?: string
   viewCount: number
@@ -80,7 +80,6 @@ export interface PageResponse<T> {
   last: boolean
 }
 
-// ── VERIFICATION ──────────────────────────────────────────────────────────────
 export type VerifStatus = 'DRAFT'|'SUBMITTED'|'AI_SCREENING'|'HUMAN_REVIEW'|'APPROVED'|'REJECTED'|'REQUIRES_RESUBMISSION'|'EXPIRED'
 
 export interface IdentityDocumentResponse {
@@ -97,11 +96,14 @@ export interface IdentityDocumentResponse {
   uploadedAt?: string
 }
 
+export type BadgeLevel = 'NONE' | 'BASIC' | 'VERIFIED' | 'GOLD'
+
 export interface IdentityVerificationResponse {
   id: string
   userId: string
   status: VerifStatus
   identityScore: number
+  badgeLevel?: BadgeLevel
   rejectionReason?: string
   resubmissionNotes?: string
   expiresAt?: string
@@ -111,16 +113,79 @@ export interface IdentityVerificationResponse {
   documents: IdentityDocumentResponse[]
   missingRequiredDocuments?: string[]
   fraudStrikeCount: number
+  permanentlyBanned: boolean
+}
+
+export type OwnershipVerifStatus =
+  | 'DRAFT' | 'SUBMITTED' | 'AI_SCREENING' | 'MINISTRY_LANDS_CHECK' | 'ENCUMBRANCE_CHECK'
+  | 'LEGAL_REVIEW' | 'HUMAN_REVIEW' | 'APPROVED' | 'REJECTED' | 'REQUIRES_RESUBMISSION'
+
+export type OwnershipPropertyType = 'FREEHOLD' | 'LEASEHOLD' | 'SECTIONAL_TITLE' | 'AGRICULTURAL' | 'COMMERCIAL'
+
+export interface DocumentRequirementResponse {
+  documentCategory: string
+  isMandatory: boolean
+  description?: string
+  kenyaLawRef?: string
+  uploaded: boolean
+}
+
+export interface OwnershipDocumentResponse {
+  id: string
+  documentCategory: string
+  documentUrl: string
+  lcAdvocateStampPresent?: boolean
+  lcAdvocateSignaturePresent?: boolean
+  lcCommissionerOathsPresent?: boolean
+  lcOfficialSealPresent?: boolean
+  lcOwnerSignaturePresent?: boolean
+  lcWitnessSignaturesPresent?: boolean
+  lcDatePresent?: boolean
+  lcParcelNumberMatches?: boolean
+  lcOriginalDocumentConfirmed?: boolean
+  aiAuthenticityScore?: number
+  aiTamperDetected?: boolean
+  aiAlterationDetected?: boolean
+  aiFontConsistency?: boolean
+  aiDateSequenceValid?: boolean
+  aiScreeningNotes?: string
+  humanLegalApproved?: boolean
+  humanReviewNotes?: string
+  uploadedAt?: string
+}
+
+export interface OwnershipVerificationResponse {
+  id: string
+  propertyId: string
+  sellerIdentityVerificationId: string
+  status: OwnershipVerifStatus
+  propertyType: OwnershipPropertyType
+  county?: string
+  parcelNumber?: string
+  titleDeedNumber?: string
+  lrNumber?: string
+  ownershipScore?: number
+  ministryLandsConfirmed?: boolean
+  encumbranceClear?: boolean
+  rejectionReason?: string
+  createdAt: string
+  updatedAt: string
+  documents: OwnershipDocumentResponse[]
+  missingDocuments?: DocumentRequirementResponse[]
+  allRequiredDocuments?: DocumentRequirementResponse[]
 }
 
 export interface TrustStatusResponse {
   userId: string
   identityVerified: boolean
+  identityStatus?: VerifStatus
+  badgeLevel?: BadgeLevel
   identityScore?: number
   identityExpired: boolean
   identityExpiresAt?: string
   propertyId?: string
   ownershipVerified: boolean
+  ownershipStatus?: OwnershipVerifStatus
   ownershipScore?: number
   ministryLandsConfirmed?: boolean
   encumbranceClear?: boolean
@@ -128,7 +193,6 @@ export interface TrustStatusResponse {
   message?: string
 }
 
-// ── VIEWING ───────────────────────────────────────────────────────────────────
 export type ViewingStatus = 'PENDING_FEE'|'REQUESTED'|'CONFIRMED'|'COMPLETED'|'CANCELLED'|'NO_SHOW'
 
 export interface ViewingResponse {
@@ -149,7 +213,6 @@ export interface ViewingResponse {
   updatedAt?: string
 }
 
-// ── PAYMENT ───────────────────────────────────────────────────────────────────
 export type PaymentStatus = 'PENDING'|'STK_PUSHED'|'COMPLETED'|'FAILED'|'CANCELLED'|'REFUNDED'
 export type PaymentType = 'FULL_PAYMENT'|'DEPOSIT'|'VIEWING_FEE'|'COMMISSION'|'PROFILE_ACCESS'
 
@@ -204,7 +267,6 @@ export interface PaymentReceiptResponse {
   issuedAt: string
 }
 
-// ── REVENUE ───────────────────────────────────────────────────────────────────
 export interface RevenueSummaryResponse {
   totalPlatformFees: number
   viewingFeeRevenue: number
@@ -236,7 +298,6 @@ export interface RevenueResponse {
   createdAt: string
 }
 
-// ── REVIEW ────────────────────────────────────────────────────────────────────
 export interface ReviewResponse {
   id: string
   reviewerId: string
@@ -253,4 +314,38 @@ export interface SellerRatingResponse {
   sellerId: string
   averageRating: number
   reviewCount: number
+}
+
+export type ReportTargetType = 'LISTING' | 'USER' | 'REVIEW'
+export type ReportReason = 'FAKE_LISTING' | 'SCAM_AGENT' | 'DUPLICATE_LISTING' | 'OFF_PLATFORM_PAYMENT_REQUEST' | 'FAKE_REVIEW' | 'OTHER'
+export type ReportStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED'
+
+export interface ReportResponse {
+  id: string
+  reporterId: string
+  targetType: ReportTargetType
+  targetId: string
+  reason: ReportReason
+  details?: string
+  status: ReportStatus
+  adminNotes?: string
+  resolvedBy?: string
+  resolvedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentApplicationStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED'
+
+export interface AgentApplicationResponse {
+  id: string
+  userId: string
+  status: AgentApplicationStatus
+  businessName?: string
+  businessDocUrl: string
+  rejectionReason?: string
+  reviewedBy?: string
+  reviewedAt?: string
+  createdAt: string
+  updatedAt: string
 }
