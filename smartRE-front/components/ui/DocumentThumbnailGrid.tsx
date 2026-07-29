@@ -67,7 +67,7 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
                   <span className="text-[10px]">Failed to load</span>
                 </div>
               ) : (
-                <Image src={d.url} alt={d.label || 'document'} fill sizes="200px" className="object-cover"
+                <Image src={d.url} alt={d.label || 'document'} fill sizes="200px" className="object-cover" unoptimized
                   onError={() => setBroken(b => ({ ...b, [d.id]: true }))}/>
               )}
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
@@ -105,7 +105,7 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
                 <span className="text-sm">This document failed to load</span>
               </div>
             ) : (
-              <Image src={current.url} alt={current.label || 'document'} fill className="object-contain"
+              <Image src={current.url} alt={current.label || 'document'} fill className="object-contain" unoptimized
                 onError={() => setBroken(b => ({ ...b, [current.id]: true }))}/>
             )}
           </div>
