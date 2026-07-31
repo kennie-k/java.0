@@ -46,12 +46,18 @@ public class ReviewService {
         if (repo.existsByReviewerIdAndPropertyId(reviewerId, req.getPropertyId()))
             throw new RuntimeException("You have already reviewed this property.");
 
-        Object eligibleBuyer = redis.opsForValue().get(PAYMENT_ELIGIBLE_PREFIX + req.getPaymentId());
-        if (eligibleBuyer == null || !eligibleBuyer.toString().equals(reviewerId.toString())) {
+        Object eligibleRaw = redis.opsForValue().get(PAYMENT_ELIGIBLE_PREFIX + req.getPaymentId());
+        String[] parts = eligibleRaw == null ? null : eligibleRaw.toString().split("\\|", -1);
+        boolean eligible = parts != null && parts.length == 3
+                && parts[0].equals(reviewerId.toString())
+                && parts[1].equals(req.getSellerId().toString())
+                && parts[2].equals(req.getPropertyId().toString());
+        if (!eligible) {
             audit(null, "REVIEW_REJECTED_PAYMENT_MISMATCH", reviewerId, clientIp,
-                    "Reviewer " + reviewerId + " tried to review payment " + req.getPaymentId()
-                            + " with no matching completed-payment eligibility record");
-            throw new RuntimeException("Payment does not belong to this user.");
+                    "Reviewer " + reviewerId + " tried to review sellerId=" + req.getSellerId()
+                            + " propertyId=" + req.getPropertyId() + " against payment " + req.getPaymentId()
+                            + " which does not match that payment's real buyer/seller/property");
+            throw new RuntimeException("This payment does not match the seller and property you're reviewing.");
         }
 
         Review r = repo.save(Review.builder()
