@@ -1,5 +1,6 @@
 package com.kenyarealestate.review.service;
 
+import com.kenyarealestate.review.client.PaymentServiceClient;
 import com.kenyarealestate.review.dto.*;
 import com.kenyarealestate.review.entity.Review;
 import com.kenyarealestate.review.entity.ReviewAuditLog;
@@ -24,6 +25,7 @@ public class ReviewService {
     private final ReviewRepository repo;
     private final ReviewAuditLogRepository auditRepo;
     private final RedisTemplate<String, Object> redis;
+    private final PaymentServiceClient paymentServiceClient;
 
     private static final String PAYMENT_ELIGIBLE_PREFIX = "payment:eligible:";
     private static final String RATING_PREFIX = "rating:";
@@ -33,10 +35,12 @@ public class ReviewService {
 
     public ReviewService(ReviewRepository repo,
                          ReviewAuditLogRepository auditRepo,
-                         RedisTemplate<String, Object> redis) {
+                         RedisTemplate<String, Object> redis,
+                         PaymentServiceClient paymentServiceClient) {
         this.repo = repo;
         this.auditRepo = auditRepo;
         this.redis = redis;
+        this.paymentServiceClient = paymentServiceClient;
     }
 
     public ReviewResponse create(UUID reviewerId, CreateReviewRequest req, String clientIp) {
@@ -48,10 +52,17 @@ public class ReviewService {
 
         Object eligibleRaw = redis.opsForValue().get(PAYMENT_ELIGIBLE_PREFIX + req.getPaymentId());
         String[] parts = eligibleRaw == null ? null : eligibleRaw.toString().split("\\|", -1);
-        boolean eligible = parts != null && parts.length == 3
-                && parts[0].equals(reviewerId.toString())
-                && parts[1].equals(req.getSellerId().toString())
-                && parts[2].equals(req.getPropertyId().toString());
+        boolean eligible;
+        if (parts != null && parts.length == 3) {
+            eligible = parts[0].equals(reviewerId.toString())
+                    && parts[1].equals(req.getSellerId().toString())
+                    && parts[2].equals(req.getPropertyId().toString());
+        } else {
+            // Redis key missing - either evicted (shared Redis instance runs allkeys-lru) or the
+            // Kafka event never landed. Fall back to asking payment-service directly rather than
+            // permanently blocking a buyer who genuinely paid.
+            eligible = paymentServiceClient.checkEligible(req.getPaymentId(), reviewerId, req.getSellerId(), req.getPropertyId());
+        }
         if (!eligible) {
             audit(null, "REVIEW_REJECTED_PAYMENT_MISMATCH", reviewerId, clientIp,
                     "Reviewer " + reviewerId + " tried to review sellerId=" + req.getSellerId()

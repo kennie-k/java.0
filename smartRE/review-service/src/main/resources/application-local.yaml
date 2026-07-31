@@ -56,3 +56,7 @@ logging:
 redis:
   seller-rating-prefix: "rating:"
   seller-rating-ttl-seconds: 60
+
+services:
+  payment-url: http://localhost:8085
+  internal-secret: smartre-internal-secret-2026

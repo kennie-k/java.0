@@ -19,7 +19,7 @@ public class ReviewAuditLog {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "review_id", nullable = false)
+    @Column(name = "review_id")
     private UUID reviewId;
 
     @Column(name = "event_type", nullable = false, length = 60)
