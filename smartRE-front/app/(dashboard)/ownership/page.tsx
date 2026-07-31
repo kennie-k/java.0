@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { Landmark, Upload, CheckCircle, Clock, XCircle, AlertTriangle, FileText, Building2, type LucideIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Landmark, Upload, CheckCircle, Clock, XCircle, AlertTriangle, FileText, Building2, X, type LucideIcon } from 'lucide-react'
 import { propertyApi, verifApi } from '@/lib/api'
 import type { PropertyResponse, OwnershipVerificationResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
@@ -8,10 +9,13 @@ import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import FileUpload from '@/components/ui/FileUpload'
-import { PageLoader } from '@/components/ui/Modal'
+import { PageLoader, ConfirmModal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/ui/Badge'
+import { COUNTY_OPTIONS } from '@/lib/counties'
 import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
+
+const NON_TERMINAL = ['SUBMITTED', 'AI_SCREENING', 'MINISTRY_LANDS_CHECK', 'ENCUMBRANCE_CHECK', 'LEGAL_REVIEW', 'HUMAN_REVIEW']
 
 const DOC_CATEGORIES = [
   { value: 'TITLE_DEED', label: 'Title deed' },
@@ -53,6 +57,7 @@ const STATUS_INFO: Record<string, { icon: LucideIcon; color: string; title: stri
 }
 
 export default function OwnershipPage() {
+  const router = useRouter()
   const [properties, setProperties] = useState<PropertyResponse[]>([])
   const [verifications, setVerifications] = useState<OwnershipVerificationResponse[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,6 +67,9 @@ export default function OwnershipPage() {
   const [startForm, setStartForm] = useState({ propertyType: 'FREEHOLD', county: '', parcelNumber: '', titleDeedNumber: '', lrNumber: '' })
   const [activeVerification, setActiveVerification] = useState<OwnershipVerificationResponse | null>(null)
   const [docCategory, setDocCategory] = useState('TITLE_DEED')
+  const [confirmCancelStart, setConfirmCancelStart] = useState(false)
+  const [confirmCancelUpload, setConfirmCancelUpload] = useState<string | null>(null)
+  const prevStatuses = useRef<Record<string, string>>({})
 
   const load = () => {
     setLoading(true)
@@ -71,6 +79,28 @@ export default function OwnershipPage() {
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+
+  // Poll while any verification is mid-pipeline so the seller sees each stage advance
+  // (MINISTRY_LANDS_CHECK -> ENCUMBRANCE_CHECK -> ... -> APPROVED/REJECTED) without refreshing.
+  useEffect(() => {
+    if (!verifications.some(v => NON_TERMINAL.includes(v.status))) return
+    const interval = setInterval(() => {
+      verifApi.myOwner().then(setVerifications).catch(() => {})
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [verifications])
+
+  useEffect(() => {
+    for (const v of verifications) {
+      const prev = prevStatuses.current[v.id]
+      prevStatuses.current[v.id] = v.status
+      if (!prev || prev === v.status || !NON_TERMINAL.includes(prev)) continue
+      const property = properties.find(p => p.id === v.propertyId)
+      const name = property?.title || 'Your listing'
+      if (v.status === 'APPROVED') toast.success(`${name}: ownership verification approved!`)
+      else if (v.status === 'REJECTED') toast.error(`${name}: ownership verification rejected — see reason below.`)
+    }
+  }, [verifications, properties])
 
   const propertiesWithoutVerification = properties.filter(p => !verifications.some(v => v.propertyId === p.id))
 
@@ -127,18 +157,26 @@ export default function OwnershipPage() {
             {selectedPropertyId && (
               <>
                 <Select label="Title type" required options={PROPERTY_TYPES} value={startForm.propertyType} onChange={e => setStartForm(f => ({ ...f, propertyType: e.target.value }))}/>
-                <Input label="County" required value={startForm.county} onChange={e => setStartForm(f => ({ ...f, county: e.target.value }))}/>
+                <Select label="County" required options={COUNTY_OPTIONS} value={startForm.county} onChange={e => setStartForm(f => ({ ...f, county: e.target.value }))}/>
                 <div className="grid grid-cols-3 gap-2">
                   <Input label="Parcel number" value={startForm.parcelNumber} onChange={e => setStartForm(f => ({ ...f, parcelNumber: e.target.value }))}/>
                   <Input label="Title deed number" value={startForm.titleDeedNumber} onChange={e => setStartForm(f => ({ ...f, titleDeedNumber: e.target.value }))}/>
                   <Input label="LR number" value={startForm.lrNumber} onChange={e => setStartForm(f => ({ ...f, lrNumber: e.target.value }))}/>
                 </div>
-                <Button onClick={startVerification} loading={starting}>Start verification</Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={() => setConfirmCancelStart(true)} leftIcon={<X size={14}/>}>Cancel</Button>
+                  <Button onClick={startVerification} loading={starting}>Start verification</Button>
+                </div>
               </>
             )}
           </div>
         </Card>
       )}
+
+      <ConfirmModal open={confirmCancelStart} onClose={() => setConfirmCancelStart(false)}
+        onConfirm={() => { setConfirmCancelStart(false); setSelectedPropertyId('') }}
+        title="Cancel this verification form?" label="Discard" danger={false}
+        message="Nothing has been submitted yet — this will just clear the form."/>
 
       {verifications.map(v => {
         const info = STATUS_INFO[v.status] || STATUS_INFO.DRAFT
@@ -185,14 +223,22 @@ export default function OwnershipPage() {
                     ))}
                   </div>
                 )}
-                <Button onClick={() => submitVerification(v.id)} loading={submitting} disabled={uploadedCategories.length === 0} leftIcon={<Upload size={13}/>}>
-                  Submit for review
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={() => setConfirmCancelUpload(v.id)} leftIcon={<X size={13}/>}>Cancel</Button>
+                  <Button onClick={() => submitVerification(v.id)} loading={submitting} disabled={uploadedCategories.length === 0} leftIcon={<Upload size={13}/>}>
+                    Submit for review
+                  </Button>
+                </div>
               </div>
             )}
           </Card>
         )
       })}
+
+      <ConfirmModal open={!!confirmCancelUpload} onClose={() => setConfirmCancelUpload(null)}
+        onConfirm={() => { setConfirmCancelUpload(null); router.push('/listings') }}
+        title="Leave verification?" label="Leave" danger={false}
+        message="Your uploaded documents are saved as a draft — you can come back and resume anytime."/>
 
       {verifications.length === 0 && propertiesWithoutVerification.length === 0 && properties.length === 0 && (
         <Card>

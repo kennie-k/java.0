@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useUIStore, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/lib/uiStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -17,7 +17,7 @@ export default function AdminLayout({ children }:{ children:React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface">
-      <Sidebar open={sidebar} onClose={() => setSidebar(false)}/>
+      <Suspense fallback={null}><Sidebar open={sidebar} onClose={() => setSidebar(false)}/></Suspense>
       <Topbar onMenu={() => setSidebar(true)}/>
       <main className="pt-16 min-h-screen transition-[padding-left] duration-300 ease-in-out"
         style={{ paddingLeft: isDesktop ? (collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) : 0 }}>

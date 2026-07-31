@@ -18,6 +18,7 @@ import Select from '@/components/ui/Select'
 import Textarea from '@/components/ui/Textarea'
 import FileUpload from '@/components/ui/FileUpload'
 import PropertyLocationPicker from '@/components/property/PropertyLocationPicker'
+import { COUNTY_OPTIONS } from '@/lib/counties'
 import toast from 'react-hot-toast'
 
 const schema = z.object({
@@ -130,7 +131,7 @@ export default function NewPropertyPage() {
         <Card>
           <h2 className="font-display font-semibold mb-4">Location</h2>
           <div className="space-y-4">
-            <Input label="County" placeholder="e.g. Nairobi" required {...register('county')} error={errors.county?.message}/>
+            <Select label="County" required options={COUNTY_OPTIONS} {...register('county')} error={errors.county?.message}/>
             <div className="grid grid-cols-2 gap-4">
               <Input label="Sub-county" placeholder="e.g. Westlands" {...register('subCounty')}/>
               <Input label="City / Area" placeholder="e.g. Westlands" {...register('city')}/>

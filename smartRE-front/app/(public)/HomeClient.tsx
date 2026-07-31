@@ -8,6 +8,7 @@ import {
   Smartphone, Landmark, FileCheck, ArrowRight, Star, TrendingUp, Users, Building2,
 } from 'lucide-react'
 import { propertyApi } from '@/lib/api'
+import { KENYA_COUNTIES } from '@/lib/counties'
 import type { PropertyResponse } from '@/types'
 import PropertyCard from '@/components/property/PropertyCard'
 import RevealCard from '@/components/ui/RevealCard'
@@ -106,16 +107,18 @@ export default function HomeClient() {
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
               <input value={keyword} onChange={e => setKeyword(e.target.value)}
                 placeholder="Search by title, estate, or keyword..."
-                className="w-full h-9 pl-8 pr-3 rounded-md bg-transparent text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:bg-white dark:focus:bg-white/10"/>
+                className="w-full h-9 pl-8 pr-3 rounded-md bg-transparent border border-transparent text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/20 focus:border-gold-500 focus:bg-white dark:focus:bg-white/10"/>
             </div>
             <div className="relative sm:w-40">
-              <MapPin size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-              <input value={county} onChange={e => setCounty(e.target.value)}
-                placeholder="County"
-                className="w-full h-9 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:bg-white dark:focus:bg-white/10"/>
+              <MapPin size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10"/>
+              <select value={county} onChange={e => setCounty(e.target.value)}
+                className="w-full h-9 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 border border-transparent text-[13px] text-gray-700 dark:text-gray-200 cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/20 focus:border-gold-500">
+                <option value="">County</option>
+                {KENYA_COUNTIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <select value={listingType} onChange={e => setListingType(e.target.value)}
-              className="h-9 px-2.5 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] text-gray-700 dark:text-gray-200 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 sm:w-32">
+              className="h-9 px-2.5 rounded-md bg-gray-50 dark:bg-white/5 border border-transparent text-[13px] text-gray-700 dark:text-gray-200 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/20 focus:border-gold-500 sm:w-32">
               <option value="">Buy or rent</option>
               <option value="SALE">For sale</option>
               <option value="RENT">To rent</option>

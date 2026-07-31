@@ -1,12 +1,13 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Flag, CheckCircle, XCircle, ExternalLink, Search, Building2 } from 'lucide-react'
-import { reportApi, propertyApi } from '@/lib/api'
+import { reportApi, propertyApi, userApi } from '@/lib/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
-import type { ReportResponse } from '@/types'
+import type { ReportResponse, ReportStatus } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -23,17 +24,30 @@ const TARGET_LINK: Record<string, (id: string) => string> = {
   USER: id => `/sellers/${id}`,
 }
 
-const REPORTS_KEY = queryKeys.reports('OPEN')
+const VALID_STATUSES: ReportStatus[] = ['OPEN', 'RESOLVED', 'DISMISSED']
 
 export default function ReportsQueuePage() {
+  return <Suspense fallback={<PageLoader/>}><ReportsQueuePageInner/></Suspense>
+}
+
+function ReportsQueuePageInner() {
   const qc = useQueryClient()
+  const sp = useSearchParams()
+  const statusParam = sp.get('status')
+  const [status, setStatus] = useState<ReportStatus>(
+    statusParam && VALID_STATUSES.includes(statusParam as ReportStatus) ? statusParam as ReportStatus : 'OPEN'
+  )
+  useEffect(() => {
+    setStatus(statusParam && VALID_STATUSES.includes(statusParam as ReportStatus) ? statusParam as ReportStatus : 'OPEN')
+  }, [statusParam])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<ReportResponse | null>(null)
-  const [form, setForm] = useState({ decision: 'RESOLVED', notes: '' })
+  const [form, setForm] = useState({ decision: 'RESOLVED', notes: '', takeAction: false })
 
+  const REPORTS_KEY = queryKeys.reports(status)
   const { data, isLoading: loading, error } = useQuery({
     queryKey: REPORTS_KEY,
-    queryFn: () => reportApi.adminQueue('OPEN'),
+    queryFn: () => reportApi.adminQueue(status),
   })
   const queue = data?.content ?? []
   const filtered = queue.filter(r =>
@@ -60,8 +74,14 @@ export default function ReportsQueuePage() {
   const resolve = async () => {
     if (!modal) return
     try {
+      if (form.decision === 'RESOLVED' && form.takeAction) {
+        if (modal.targetType === 'LISTING') await propertyApi.adminSuspend(modal.targetId)
+        else if (modal.targetType === 'USER') await userApi.ban(modal.targetId)
+      }
       await resolveMutation.mutateAsync({ id: modal.id, form })
-      toast.success(`Report ${form.decision.toLowerCase()}`)
+      toast.success(form.takeAction
+        ? `Report resolved — ${modal.targetType === 'LISTING' ? 'listing suspended' : 'user banned'}`
+        : `Report ${form.decision.toLowerCase()}`)
       setModal(null)
     } catch (e: any) { toast.error(e.response?.data?.error || 'Failed to resolve report') }
   }
@@ -70,9 +90,18 @@ export default function ReportsQueuePage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Reports</h1>
-        <p className="text-muted text-[13px] mt-1">{queue.length} open report{queue.length !== 1 ? 's' : ''} from buyers and sellers</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Reports</h1>
+          <p className="text-muted text-[13px] mt-1">{queue.length} {status.toLowerCase()} report{queue.length !== 1 ? 's' : ''} from buyers and sellers</p>
+        </div>
+        <div className="w-48">
+          <Select label="Status" options={[
+            { value: 'OPEN', label: 'Open' },
+            { value: 'RESOLVED', label: 'Resolved' },
+            { value: 'DISMISSED', label: 'Dismissed' },
+          ]} value={status} onChange={e => setStatus(e.target.value as ReportStatus)}/>
+        </div>
       </div>
 
       {error && <InlineError message="Failed to load reports."/>}
@@ -82,7 +111,7 @@ export default function ReportsQueuePage() {
       )}
 
       {queue.length === 0 ? (
-        <EmptyState icon={<Flag size={28}/>} title="No open reports" desc="Reports of fake listings, scam agents, or fraudulent reviews will show up here."/>
+        <EmptyState icon={<Flag size={28}/>} title={`No ${status.toLowerCase()} reports`} desc="Reports of fake listings, scam agents, or fraudulent reviews will show up here."/>
       ) : filtered.length === 0 ? (
         <EmptyState icon={<Search size={24}/>} title="No reports match that search"/>
       ) : (
@@ -111,7 +140,7 @@ export default function ReportsQueuePage() {
                       </a>
                     )}
                   </div>
-                  <Button size="sm" onClick={() => { setModal(item); setForm({ decision: 'RESOLVED', notes: '' }) }}>Resolve</Button>
+                  <Button size="sm" onClick={() => { setModal(item); setForm({ decision: 'RESOLVED', notes: '', takeAction: false }) }}>Resolve</Button>
                 </div>
               </Card>
             )
@@ -157,11 +186,21 @@ export default function ReportsQueuePage() {
               </div>
             )}
 
-            <p className="text-[12px] text-muted">
-              Resolving a report does not automatically suspend a listing or ban a user - use the target&apos;s admin page to take that action if warranted.
-            </p>
             <Select label="Decision" required options={[{ value: 'RESOLVED', label: 'Resolved (action taken)' }, { value: 'DISMISSED', label: 'Dismiss (no action needed)' }]}
               value={form.decision} onChange={e => setForm(f => ({ ...f, decision: e.target.value }))}/>
+
+            {form.decision === 'RESOLVED' && (modal.targetType === 'LISTING' || modal.targetType === 'USER') && (
+              <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-base cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2E2518]">
+                <input type="checkbox" className="mt-0.5" checked={form.takeAction}
+                  onChange={e => setForm(f => ({ ...f, takeAction: e.target.checked }))}/>
+                <span className="text-[12px] text-gray-700 dark:text-gray-300">
+                  {modal.targetType === 'LISTING'
+                    ? 'Also suspend this listing immediately — it will disappear from search until reactivated.'
+                    : 'Also ban this user immediately — they will be unable to log in until unbanned.'}
+                </span>
+              </label>
+            )}
+
             <Textarea label="Admin notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}/>
           </div>
         )}

@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { Search, MapPin, SlidersHorizontal, Building2, X, ShieldCheck } from 'lucide-react'
+import { Search, SlidersHorizontal, Building2, X, ShieldCheck } from 'lucide-react'
 import { propertyApi } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
 import { queryKeys } from '@/lib/queryKeys'
+import { KENYA_COUNTIES } from '@/lib/counties'
 import PropertyCard from '@/components/property/PropertyCard'
 import RevealCard from '@/components/ui/RevealCard'
 import Input from '@/components/ui/Input'
@@ -94,7 +95,7 @@ export default function PropertiesClient() {
             value={keywordInput}
             onChange={e => setKeywordInput(e.target.value)}
             placeholder="Search title, estate, description..."
-            className="w-full h-8 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:bg-white dark:focus:bg-white/10"/>
+            className="w-full h-8 pl-8 pr-3 rounded-md bg-gray-50 dark:bg-white/5 border border-transparent text-[13px] placeholder:text-gray-400 transition-all focus:outline-none focus:ring-2 focus:ring-gold-500/20 focus:border-gold-500 focus:bg-white dark:focus:bg-white/10"/>
         </div>
         <Button variant="secondary" size="sm" leftIcon={<SlidersHorizontal size={12}/>} onClick={() => setShowFilters(s => !s)}>
           Filters {activeCount > 0 && <span className="ml-0.5 badge bg-gold-500 text-white">{activeCount}</span>}
@@ -104,7 +105,10 @@ export default function PropertiesClient() {
       {showFilters && (
         <div className="card p-3.5 mb-4 animate-fade-in space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            <Input placeholder="County" leftIcon={<MapPin size={13}/>} value={countyInput} onChange={e => setCountyInput(e.target.value)}/>
+            <select value={countyInput} onChange={e => setCountyInput(e.target.value)} className="input-base cursor-pointer">
+              <option value="">All counties</option>
+              {KENYA_COUNTIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
             <select value={propertyType} onChange={e => setPropertyType(e.target.value)} className="input-base cursor-pointer">
               <option value="">All types</option>
               <option value="HOUSE">House</option><option value="APARTMENT">Apartment</option>

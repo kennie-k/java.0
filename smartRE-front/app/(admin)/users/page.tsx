@@ -1,24 +1,42 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Users, Search, ShieldCheck, ShieldPlus, Ban, RotateCcw } from 'lucide-react'
 import { useUsers } from '@/hooks/useUsers'
-import type { UserResponse } from '@/types'
+import type { Role, UserResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
+import Select from '@/components/ui/Select'
 import { ConfirmModal, EmptyState, PageLoader } from '@/components/ui/Modal'
 import { InlineError } from '@/components/ui/InlineError'
 import { fmt } from '@/lib/utils'
 
+const VALID_ROLES: Role[] = ['BUYER', 'SELLER', 'AGENT', 'ADMIN']
+
 export default function UsersPage() {
+  return <Suspense fallback={<PageLoader/>}><UsersPageInner/></Suspense>
+}
+
+function UsersPageInner() {
   const { users, loading, error, sellers, agents, buyers, admins, promote, promotingId, ban, unban, banningId } = useUsers()
+  const sp = useSearchParams()
+  const roleParam = sp.get('role')
   const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState<Role | ''>(
+    roleParam && VALID_ROLES.includes(roleParam as Role) ? roleParam as Role : ''
+  )
+  useEffect(() => {
+    setRoleFilter(roleParam && VALID_ROLES.includes(roleParam as Role) ? roleParam as Role : '')
+  }, [roleParam])
   const [target, setTarget] = useState<UserResponse | null>(null)
   const [banTarget, setBanTarget] = useState<UserResponse | null>(null)
 
-  const filtered = users.filter(u =>
-    !search || u.fullName.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = users
+    .filter(u => !roleFilter || u.role === roleFilter)
+    .filter(u =>
+      !search || u.fullName.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
+    )
 
   if (loading) return <PageLoader/>
 
@@ -36,16 +54,35 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Users</h1>
-        <p className="text-muted text-sm mt-1">{users.length} registered users</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Users</h1>
+          <p className="text-muted text-sm mt-1">{filtered.length} of {users.length} registered users</p>
+        </div>
+        <div className="w-48">
+          <Select label="Role" options={[
+            { value: '', label: 'All roles' },
+            { value: 'SELLER', label: 'Sellers' },
+            { value: 'AGENT', label: 'Agents' },
+            { value: 'BUYER', label: 'Buyers' },
+            { value: 'ADMIN', label: 'Admins' },
+          ]} value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | '')}/>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card><p className="text-sm text-muted">Sellers</p><p className="font-display text-lg font-semibold mt-1">{sellers}</p></Card>
-        <Card><p className="text-sm text-muted">Agents</p><p className="font-display text-lg font-semibold mt-1">{agents}</p></Card>
-        <Card><p className="text-sm text-muted">Buyers</p><p className="font-display text-lg font-semibold mt-1">{buyers}</p></Card>
-        <Card><p className="text-sm text-muted">Admins</p><p className="font-display text-lg font-semibold mt-1">{admins}</p></Card>
+        <button onClick={() => setRoleFilter(roleFilter === 'SELLER' ? '' : 'SELLER')} className="text-left">
+          <Card className={roleFilter === 'SELLER' ? 'ring-2 ring-gold-500' : ''}><p className="text-sm text-muted">Sellers</p><p className="font-display text-lg font-semibold mt-1">{sellers}</p></Card>
+        </button>
+        <button onClick={() => setRoleFilter(roleFilter === 'AGENT' ? '' : 'AGENT')} className="text-left">
+          <Card className={roleFilter === 'AGENT' ? 'ring-2 ring-gold-500' : ''}><p className="text-sm text-muted">Agents</p><p className="font-display text-lg font-semibold mt-1">{agents}</p></Card>
+        </button>
+        <button onClick={() => setRoleFilter(roleFilter === 'BUYER' ? '' : 'BUYER')} className="text-left">
+          <Card className={roleFilter === 'BUYER' ? 'ring-2 ring-gold-500' : ''}><p className="text-sm text-muted">Buyers</p><p className="font-display text-lg font-semibold mt-1">{buyers}</p></Card>
+        </button>
+        <button onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')} className="text-left">
+          <Card className={roleFilter === 'ADMIN' ? 'ring-2 ring-gold-500' : ''}><p className="text-sm text-muted">Admins</p><p className="font-display text-lg font-semibold mt-1">{admins}</p></Card>
+        </button>
       </div>
 
       <Card>

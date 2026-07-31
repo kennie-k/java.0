@@ -1,7 +1,8 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, CheckCircle, XCircle, FileText, AlertTriangle, Landmark, ShieldCheck } from 'lucide-react'
+import { ListChecks, CheckCircle, XCircle, FileText, AlertTriangle, Landmark, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react'
 import { verifApi } from '@/lib/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
@@ -27,16 +28,26 @@ type ModalItem =
   | (OwnershipVerificationResponse & { _tab: 'ownership' })
 
 export default function VerifQueuePage() {
+  return <Suspense fallback={<PageLoader/>}><VerifQueuePageInner/></Suspense>
+}
+
+function VerifQueuePageInner() {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'identity' | 'ownership'>('identity')
+  const sp = useSearchParams()
+  const tabParam = sp.get('tab')
+  const [tab, setTab] = useState<'identity' | 'ownership'>(tabParam === 'ownership' ? 'ownership' : 'identity')
+  useEffect(() => {
+    if (tabParam === 'identity' || tabParam === 'ownership') setTab(tabParam)
+  }, [tabParam])
   const [modal, setModal] = useState<ModalItem | null>(null)
   const [form, setForm] = useState({ decision: 'APPROVED', notes: '', resubmissionNotes: '' })
-  const [ownForm, setOwnForm] = useState({
+  const defaultOwnForm = () => ({
     ministryConfirmed: true, encumbranceClear: true,
     lcAdvocateStampPresent: true, lcAdvocateSignaturePresent: true, lcOfficialSealPresent: true,
     lcOwnerSignaturePresent: true, lcParcelNumberMatches: true, humanLegalApproved: true,
     decision: 'APPROVED', notes: '',
   })
+  const [ownForm, setOwnForm] = useState(defaultOwnForm())
 
   const idQueueQuery = useQuery({ queryKey: ID_KEY, queryFn: () => verifApi.idAdminQueue() })
   const ownQueueQueries = useQueries({
@@ -55,6 +66,18 @@ export default function VerifQueuePage() {
   )
   const loading = idQueueQuery.isLoading || ownQueueQueries.some(q => q.isLoading)
   const loadError = idQueueQuery.isError || ownQueueQueries.some(q => q.isError)
+
+  const openIdentity = (item: IdentityVerificationResponse) => {
+    setModal({ ...item, _tab: 'identity' })
+    setForm({ decision: 'APPROVED', notes: '', resubmissionNotes: '' })
+  }
+  const openOwnership = (item: OwnershipVerificationResponse) => {
+    setModal({ ...item, _tab: 'ownership' })
+    setOwnForm(defaultOwnForm())
+  }
+
+  const idModalIndex = modal?._tab === 'identity' ? idQueue.findIndex(x => x.id === modal.id) : -1
+  const ownModalIndex = modal?._tab === 'ownership' ? ownQueue.findIndex(x => x.id === modal.id) : -1
 
   const reviewIdentityMutation = useMutation({
     mutationFn: (vars: { id: string; form: typeof form }) => verifApi.idAdminReview(vars.id, vars.form),
@@ -152,7 +175,7 @@ export default function VerifQueuePage() {
                   <p className="text-[12px] text-muted">Score: {item.identityScore}/100 · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
                   {item.fraudStrikeCount > 0 && <p className="text-[12px] text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={11}/>Fraud strikes: {item.fraudStrikeCount}</p>}
                 </div>
-                <Button size="sm" onClick={() => { setModal({ ...item, _tab: 'identity' }); setForm({ decision: 'APPROVED', notes: '', resubmissionNotes: '' }) }}>Review</Button>
+                <Button size="sm" onClick={() => openIdentity(item)}>Review</Button>
               </div>
             </Card>
           )) : ownQueue.map(item => (
@@ -168,7 +191,7 @@ export default function VerifQueuePage() {
                   </div>
                   <p className="text-[12px] text-muted">{item.county} · {item.propertyType} · Docs: {item.documents?.length || 0} uploaded · {fmt.date(item.createdAt)}</p>
                 </div>
-                <Button size="sm" onClick={() => setModal({ ...item, _tab: 'ownership' })}>Review</Button>
+                <Button size="sm" onClick={() => openOwnership(item)}>Review</Button>
               </div>
             </Card>
           ))}
@@ -183,6 +206,15 @@ export default function VerifQueuePage() {
           </Button></>}>
         {modal && modal._tab === 'identity' && (
           <div className="space-y-4">
+            <div className="flex items-center justify-between text-[12px] text-muted">
+              <Button size="sm" variant="ghost" leftIcon={<ChevronLeft size={14}/>} disabled={idModalIndex <= 0}
+                onClick={() => openIdentity(idQueue[idModalIndex - 1])}>Previous</Button>
+              <span>{idModalIndex + 1} of {idQueue.length}</span>
+              <Button size="sm" variant="ghost" onClick={() => openIdentity(idQueue[idModalIndex + 1])}
+                disabled={idModalIndex === -1 || idModalIndex >= idQueue.length - 1}>
+                Next <ChevronRight size={14}/>
+              </Button>
+            </div>
             <div className="p-3 bg-gray-50 dark:bg-[#2E2518] rounded-lg text-[13px] space-y-1">
               <p>User: {modal.userId}</p>
               <p>AI Score: <strong>{modal.identityScore}/100</strong></p>
@@ -203,6 +235,15 @@ export default function VerifQueuePage() {
           </Button></>}>
         {modal && modal._tab === 'ownership' && (
           <div className="space-y-4">
+            <div className="flex items-center justify-between text-[12px] text-muted">
+              <Button size="sm" variant="ghost" leftIcon={<ChevronLeft size={14}/>} disabled={ownModalIndex <= 0}
+                onClick={() => openOwnership(ownQueue[ownModalIndex - 1])}>Previous</Button>
+              <span>{ownModalIndex + 1} of {ownQueue.length}</span>
+              <Button size="sm" variant="ghost" onClick={() => openOwnership(ownQueue[ownModalIndex + 1])}
+                disabled={ownModalIndex === -1 || ownModalIndex >= ownQueue.length - 1}>
+                Next <ChevronRight size={14}/>
+              </Button>
+            </div>
             <div className="p-3 bg-gray-50 dark:bg-[#2E2518] rounded-lg text-[13px] space-y-1">
               <p>County: {modal.county} · Parcel: {modal.parcelNumber || 'N/A'}</p>
               <p>Title deed: {modal.titleDeedNumber || 'N/A'} · LR: {modal.lrNumber || 'N/A'}</p>

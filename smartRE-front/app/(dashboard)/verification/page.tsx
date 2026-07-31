@@ -1,15 +1,19 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { ShieldCheck, CheckCircle, Clock, XCircle, AlertTriangle, ChevronRight, FileText, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ShieldCheck, CheckCircle, Clock, XCircle, AlertTriangle, ChevronRight, FileText, Upload, X } from 'lucide-react'
 import { verifApi } from '@/lib/api'
+import { useAuthStore } from '@/lib/store'
 import type { IdentityVerificationResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import FileUpload from '@/components/ui/FileUpload'
 import { StatusBadge } from '@/components/ui/Badge'
-import { PageLoader } from '@/components/ui/Modal'
+import { PageLoader, ConfirmModal } from '@/components/ui/Modal'
 import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
+
+const NON_TERMINAL = ['SUBMITTED', 'AI_SCREENING', 'HUMAN_REVIEW']
 
 const DOC_CATEGORIES = [
   { key:'NATIONAL_ID_FRONT',   label:'National ID (Front)',    desc:'Clear photo of front side' },
@@ -30,14 +34,45 @@ const STATUS_INFO: Record<string,{ icon:any; color:string; title:string; desc:st
 }
 
 export default function VerificationPage() {
+  const router = useRouter()
+  const { user, setUser } = useAuthStore()
   const [verif, setVerif]       = useState<IdentityVerificationResponse | null>(null)
   const [loading, setLoad]      = useState(true)
   const [starting, setStart]    = useState(false)
   const [submitting, setSubmit] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const prevStatus = useRef<string | null>(null)
 
   useEffect(() => {
     verifApi.myId().then(setVerif).catch(() => setVerif(null)).finally(() => setLoad(false))
   }, [])
+
+  // Poll while a submission is in flight so the seller sees HUMAN_REVIEW -> APPROVED/REJECTED
+  // land without having to manually refresh the page.
+  useEffect(() => {
+    const status = verif?.status
+    if (!status || !NON_TERMINAL.includes(status)) return
+    const interval = setInterval(() => {
+      verifApi.myId().then(setVerif).catch(() => {})
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [verif?.status])
+
+  useEffect(() => {
+    const status = verif?.status
+    if (!status) return
+    const prev = prevStatus.current
+    prevStatus.current = status
+    if (!prev || prev === status || !NON_TERMINAL.includes(prev)) return
+    if (status === 'APPROVED') {
+      toast.success('Your identity verification was approved!')
+      if (user) setUser({ ...user, verified: true })
+    } else if (status === 'REJECTED') {
+      toast.error('Your identity verification was rejected — see reason below.')
+    } else if (status === 'REQUIRES_RESUBMISSION') {
+      toast.error('Some documents need to be resubmitted — see notes below.')
+    }
+  }, [verif?.status, user, setUser])
 
   const start = async () => {
     setStart(true)
@@ -149,10 +184,18 @@ export default function VerificationPage() {
 
           <div className="mt-6 flex items-center justify-between">
             <p className="text-sm text-muted">{uploadedCategories.length} of {DOC_CATEGORIES.length} documents uploaded</p>
-            <Button onClick={submit} loading={submitting} disabled={!allUploaded}>Submit for verification <ChevronRight size={14}/></Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setConfirmCancel(true)} leftIcon={<X size={14}/>}>Cancel</Button>
+              <Button onClick={submit} loading={submitting} disabled={!allUploaded}>Submit for verification <ChevronRight size={14}/></Button>
+            </div>
           </div>
         </Card>
       )}
+
+      <ConfirmModal open={confirmCancel} onClose={() => setConfirmCancel(false)}
+        onConfirm={() => { setConfirmCancel(false); router.push('/dashboard') }}
+        title="Leave verification?" label="Leave" danger={false}
+        message="Your uploaded documents are saved as a draft — you can come back and resume anytime."/>
 
       {verif?.documents && verif.documents.length > 0 && !['DRAFT'].includes(status) && (
         <Card>

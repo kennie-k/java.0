@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Building2, Ban, RotateCcw, AlertTriangle, ExternalLink, Search } from 'lucide-react'
 import { propertyApi } from '@/lib/api'
@@ -23,9 +24,22 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'SUSPENDED', label: 'Suspended' },
 ]
 
+const VALID_STATUSES = STATUS_OPTIONS.map(o => o.value)
+
 export default function AdminListingsPage() {
+  return <Suspense fallback={<PageLoader/>}><AdminListingsPageInner/></Suspense>
+}
+
+function AdminListingsPageInner() {
   const qc = useQueryClient()
-  const [status, setStatus] = useState<ListingStatus | ''>('')
+  const sp = useSearchParams()
+  const statusParam = sp.get('status')
+  const [status, setStatus] = useState<ListingStatus | ''>(
+    statusParam && VALID_STATUSES.includes(statusParam) ? statusParam as ListingStatus : ''
+  )
+  useEffect(() => {
+    setStatus(statusParam && VALID_STATUSES.includes(statusParam) ? statusParam as ListingStatus : '')
+  }, [statusParam])
   const [search, setSearch] = useState('')
   const [target, setTarget] = useState<PropertyResponse | null>(null)
 

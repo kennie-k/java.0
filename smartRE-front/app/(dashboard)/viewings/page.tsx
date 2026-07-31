@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Calendar, CheckCircle, XCircle, Clock, Building2 } from 'lucide-react'
 import { viewingApi } from '@/lib/api'
@@ -16,10 +17,21 @@ import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
 export default function ViewingsPage() {
+  return <Suspense fallback={<PageLoader/>}><ViewingsPageInner/></Suspense>
+}
+
+function ViewingsPageInner() {
   const { user } = useAuthStore()
   const qc = useQueryClient()
   const isSeller = isSellerOrAgent(user)
-  const [tab, setTab] = useState<'buyer'|'seller'>(isSeller ? 'seller' : 'buyer')
+  const sp = useSearchParams()
+  const tabParam = sp.get('tab')
+  const [tab, setTab] = useState<'buyer'|'seller'>(
+    tabParam === 'buyer' || tabParam === 'seller' ? tabParam : (isSeller ? 'seller' : 'buyer')
+  )
+  useEffect(() => {
+    if (tabParam === 'buyer' || tabParam === 'seller') setTab(tabParam)
+  }, [tabParam])
   const [confirm, setConf] = useState<{id:string;action:string}|null>(null)
 
   const queryKey = queryKeys.myViewings(tab)

@@ -261,11 +261,14 @@ public class PropertyService {
         Property p = repo.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
         String prevStatus = p.getStatus().name();
-        p.setStatus(ListingStatus.ACTIVE);
-        p.setDuplicateParcelFlag(false);
+        boolean fullyVerified = p.isSellerIdentityVerified() && p.isPropertyOwnershipVerified() && !p.isDuplicateParcelFlag();
+        p.setStatus(fullyVerified ? ListingStatus.ACTIVE : ListingStatus.PENDING_VERIFICATION);
+        if (fullyVerified) p.setDuplicateParcelFlag(false);
         Property saved = repo.save(p);
         auditService.log(propertyId, "ADMIN_REACTIVATED", prevStatus, saved.getStatus().name(),
-                adminId, "ADMIN", null, "Listing reactivated by admin");
+                adminId, "ADMIN", null, fullyVerified
+                        ? "Listing reactivated by admin"
+                        : "Listing unsuspended by admin but held at PENDING_VERIFICATION - identity and/or ownership verification not yet complete");
         evictDetailCache(propertyId);
         evictSearchCache();
         return toResponse(saved);
@@ -314,7 +317,7 @@ public class PropertyService {
                 .latitude(p.getLatitude()).longitude(p.getLongitude())
                 .price(p.getPrice()).bedrooms(p.getBedrooms()).bathrooms(p.getBathrooms())
                 .yearBuilt(p.getYearBuilt()).areaSqm(p.getAreaSqm())
-                .imageUrls(p.getImageUrls())
+                .imageUrls(new java.util.ArrayList<>(p.getImageUrls()))
                 .sellerIdentityVerified(p.isSellerIdentityVerified())
                 .propertyOwnershipVerified(p.isPropertyOwnershipVerified())
                 .fullyTrusted(p.isSellerIdentityVerified() && p.isPropertyOwnershipVerified())

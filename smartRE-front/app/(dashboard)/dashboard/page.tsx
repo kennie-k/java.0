@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQueries } from '@tanstack/react-query'
-import { Building2, Calendar, CreditCard, ShieldCheck, ArrowRight, TrendingUp, Eye, Activity } from 'lucide-react'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { Building2, Calendar, CreditCard, ShieldCheck, ArrowRight, TrendingUp, Eye, Activity, PieChart as PieChartIcon } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { useAuthStore } from '@/lib/store'
 import { isSellerOrAgent } from '@/lib/roles'
 import { propertyApi, viewingApi, paymentApi } from '@/lib/api'
@@ -18,6 +18,14 @@ import Button from '@/components/ui/Button'
 import { fmt } from '@/lib/utils'
 
 const EMPTY: never[] = []
+const VIEWING_STATUS_COLORS: Record<string, string> = {
+  PENDING_FEE: '#F59E0B', REQUESTED: '#3B82F6', CONFIRMED: '#8B5CF6',
+  COMPLETED: '#10B981', CANCELLED: '#9CA3AF', NO_SHOW: '#EF4444',
+}
+const VIEWING_STATUS_LABELS: Record<string, string> = {
+  PENDING_FEE: 'Pending fee', REQUESTED: 'Requested', CONFIRMED: 'Confirmed',
+  COMPLETED: 'Completed', CANCELLED: 'Cancelled', NO_SHOW: 'No-show',
+}
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -87,6 +95,12 @@ export default function DashboardPage() {
       .map(p => ({ name: p.title.length > 18 ? p.title.slice(0, 18) + '…' : p.title, views: p.viewCount || 0 }))
   }, [props])
 
+  const viewingStatusBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const v of views) counts[v.status] = (counts[v.status] || 0) + 1
+    return Object.entries(counts).map(([status, count]) => ({ status, name: VIEWING_STATUS_LABELS[status] || status, value: count }))
+  }, [views])
+
   if (!user || user.role === 'ADMIN') return null
 
   const today = new Date().toLocaleDateString('en-KE', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -96,7 +110,7 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-semibold text-gray-900 dark:text-white">
-            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {user.fullName.split(' ')[0]}
+            Welcome, {user.fullName.split(' ')[0]}
           </h1>
           <p className="text-muted text-[12.5px] mt-1">{today}</p>
         </div>
@@ -106,11 +120,12 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {loading ? Array(4).fill(0).map((_,i)=><SkeletonCard key={i}/>) : [
-          <StatCard key="listings" label={isSeller ? 'My listings' : 'Listings live now'}
-            value={props.length} icon={<Building2 size={16}/>} color="gold"/>,
-          <StatCard key="active" label="Active listings" value={activeProps} icon={<TrendingUp size={16}/>} color="emerald"/>,
-          <StatCard key="viewings" label="Viewings" value={pendViews} sub="pending confirmation" icon={<Calendar size={16}/>} color="blue"/>,
-          <StatCard key="payments" label="Payments" value={completePays} sub="completed" icon={<CreditCard size={16}/>} color="purple"/>,
+          <StatCard key="listings" label={isSeller ? 'My listings' : 'Listings shown'}
+            value={props.length} sub={isSeller ? 'across all statuses' : 'most recent matches'} icon={<Building2 size={16}/>} color="gold"/>,
+          <StatCard key="active" label="Active listings" value={activeProps}
+            sub={isSeller && props.length > 0 ? `${Math.round((activeProps / props.length) * 100)}% of your listings` : 'currently live'} icon={<TrendingUp size={16}/>} color="emerald"/>,
+          <StatCard key="viewings" label="Viewings" value={views.length} sub={`${pendViews} pending confirmation`} icon={<Calendar size={16}/>} color="blue"/>,
+          <StatCard key="payments" label="Payments" value={pays.length} sub={`${completePays} completed`} icon={<CreditCard size={16}/>} color="purple"/>,
         ].map((card, i) => <RevealCard key={card.key} index={i}>{card}</RevealCard>)}
       </div>
 
@@ -170,7 +185,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        {isSeller && (
+        {isSeller ? (
           <Card>
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display font-semibold text-[13px] text-gray-900 dark:text-white flex items-center gap-2"><Eye size={14} className="text-muted"/>Top listings</h2>
@@ -187,6 +202,34 @@ export default function DashboardPage() {
                   <Bar dataKey="views" fill="#C9A227" radius={[0, 4, 4, 0]} barSize={14}/>
                 </BarChart>
               </ResponsiveContainer>
+            )}
+          </Card>
+        ) : (
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display font-semibold text-[13px] text-gray-900 dark:text-white flex items-center gap-2"><PieChartIcon size={14} className="text-muted"/>Viewing status</h2>
+              <span className="text-[10.5px] text-muted bg-gray-50 dark:bg-white/5 px-2 py-0.5 rounded-full">All time</span>
+            </div>
+            {loading ? <div className="skeleton h-[180px] rounded-md"/> : viewingStatusBreakdown.length === 0 ? (
+              <div className="h-[180px] flex items-center justify-center text-[12px] text-muted">No viewings yet</div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={140}>
+                  <PieChart>
+                    <Pie data={viewingStatusBreakdown} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={3}>
+                      {viewingStatusBreakdown.map(d => <Cell key={d.status} fill={VIEWING_STATUS_COLORS[d.status] || '#9CA3AF'}/>)}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-1 text-[10.5px] text-muted">
+                  {viewingStatusBreakdown.map(d => (
+                    <span key={d.status} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: VIEWING_STATUS_COLORS[d.status] || '#9CA3AF' }}/>{d.name} ({d.value})
+                    </span>
+                  ))}
+                </div>
+              </>
             )}
           </Card>
         )}

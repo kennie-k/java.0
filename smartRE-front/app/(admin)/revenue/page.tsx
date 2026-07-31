@@ -133,7 +133,7 @@ export default function RevenuePage() {
         )}
       </Card>
 
-      <Card>
+      <Card id="pending-release" className="scroll-mt-20">
         <div className="flex items-center gap-1.5 mb-4">
           <Clock size={15} className="text-amber-500"/>
           <h2 className="font-display font-semibold">Pending escrow release</h2>
@@ -162,7 +162,7 @@ export default function RevenuePage() {
         )}
       </Card>
 
-      <Card>
+      <Card id="ledger" className="scroll-mt-20">
         <h2 className="font-display font-semibold mb-4">Transactions</h2>
         {items.length===0 ? (
           <p className="text-muted text-sm text-center py-8">No revenue transactions yet</p>

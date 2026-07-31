@@ -1,11 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, CheckCircle, XCircle, ExternalLink, Search } from 'lucide-react'
 import { agentApplicationApi } from '@/lib/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
-import type { AgentApplicationResponse } from '@/types'
+import type { AgentApplicationResponse, AgentApplicationStatus } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -18,17 +19,30 @@ import { DocumentThumbnailGrid } from '@/components/ui/DocumentThumbnailGrid'
 import { fmt } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
-const APPLICATIONS_KEY = queryKeys.agentApplications('SUBMITTED')
+const VALID_STATUSES: AgentApplicationStatus[] = ['SUBMITTED', 'APPROVED', 'REJECTED']
 
 export default function AgentApplicationsQueuePage() {
+  return <Suspense fallback={<PageLoader/>}><AgentApplicationsQueuePageInner/></Suspense>
+}
+
+function AgentApplicationsQueuePageInner() {
   const qc = useQueryClient()
+  const sp = useSearchParams()
+  const statusParam = sp.get('status')
+  const [status, setStatus] = useState<AgentApplicationStatus>(
+    statusParam && VALID_STATUSES.includes(statusParam as AgentApplicationStatus) ? statusParam as AgentApplicationStatus : 'SUBMITTED'
+  )
+  useEffect(() => {
+    setStatus(statusParam && VALID_STATUSES.includes(statusParam as AgentApplicationStatus) ? statusParam as AgentApplicationStatus : 'SUBMITTED')
+  }, [statusParam])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<AgentApplicationResponse | null>(null)
   const [form, setForm] = useState({ decision: 'APPROVED', notes: '' })
 
+  const APPLICATIONS_KEY = queryKeys.agentApplications(status)
   const { data, isLoading: loading, error } = useQuery({
     queryKey: APPLICATIONS_KEY,
-    queryFn: () => agentApplicationApi.adminQueue('SUBMITTED'),
+    queryFn: () => agentApplicationApi.adminQueue(status),
   })
   const queue = data?.content ?? []
   const filtered = queue.filter(a =>
@@ -55,9 +69,18 @@ export default function AgentApplicationsQueuePage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Agent Applications</h1>
-        <p className="text-muted text-[13px] mt-1">{queue.length} pending review{queue.length !== 1 ? 's' : ''}</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Agent Applications</h1>
+          <p className="text-muted text-[13px] mt-1">{queue.length} {status.toLowerCase()}</p>
+        </div>
+        <div className="w-48">
+          <Select label="Status" options={[
+            { value: 'SUBMITTED', label: 'Submitted' },
+            { value: 'APPROVED', label: 'Approved' },
+            { value: 'REJECTED', label: 'Rejected' },
+          ]} value={status} onChange={e => setStatus(e.target.value as AgentApplicationStatus)}/>
+        </div>
       </div>
 
       {error && <InlineError message="Failed to load agent applications."/>}
@@ -67,7 +90,7 @@ export default function AgentApplicationsQueuePage() {
       )}
 
       {queue.length === 0 ? (
-        <EmptyState icon={<Briefcase size={28}/>} title="Queue is clear" desc="No agent applications pending admin review."/>
+        <EmptyState icon={<Briefcase size={28}/>} title="Queue is clear" desc={`No ${status.toLowerCase()} agent applications.`}/>
       ) : filtered.length === 0 ? (
         <EmptyState icon={<Search size={24}/>} title="No applications match that search"/>
       ) : (

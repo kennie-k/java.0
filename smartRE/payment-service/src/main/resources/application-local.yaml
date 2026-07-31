@@ -58,9 +58,9 @@ mpesa:
   passkey: bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
   auth-url: https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials
   stk-push-url: https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest
-  callback-url: https://21b1-41-60-232-137.ngrok-free.app/api/payments/mpesa/callback
+  callback-url: ${MPESA_CALLBACK_URL:https://your-domain.com/api/payments/mpesa/callback}
   b2c-url: https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest
-  b2c-callback-url: https://21b1-41-60-232-137.ngrok-free.app/api/revenue/mpesa/b2c/callback
+  b2c-callback-url: ${MPESA_B2C_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/callback}
   initiator-name: testapi
   initiator-credential: Safaricom999!
 
