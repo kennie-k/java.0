@@ -33,6 +33,7 @@ function ViewingsPageInner() {
     if (tabParam === 'buyer' || tabParam === 'seller') setTab(tabParam)
   }, [tabParam])
   const [confirm, setConf] = useState<{id:string;action:string}|null>(null)
+  const [cancelReason, setCancelReason] = useState('')
 
   const queryKey = queryKeys.myViewings(tab)
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, error } = useInfiniteQuery({
@@ -43,15 +44,16 @@ function ViewingsPageInner() {
       const next = last.number + 1
       return next < last.totalPages ? next : undefined
     },
+    refetchInterval: 15_000,
   })
   const items = data?.pages.flatMap(p => p.content ?? []) ?? []
 
   const actionMutation = useMutation({
-    mutationFn: (vars: { id: string; action: string }) => {
+    mutationFn: (vars: { id: string; action: string; reason?: string }) => {
       if (vars.action === 'confirm-seller') return viewingApi.confirmSeller(vars.id)
       if (vars.action === 'confirm-buyer') return viewingApi.confirmBuyer(vars.id)
       if (vars.action === 'complete') return viewingApi.complete(vars.id)
-      return viewingApi.cancel(vars.id, { cancellationReason: 'Cancelled by user' })
+      return viewingApi.cancel(vars.id, vars.reason?.trim() || undefined)
     },
     onSettled: () => qc.invalidateQueries({ queryKey }),
   })
@@ -59,13 +61,28 @@ function ViewingsPageInner() {
     ? actionMutation.variables.id + actionMutation.variables.action
     : null
 
-  const doAction = async (id: string, action: string) => {
-    try {
-      await actionMutation.mutateAsync({ id, action })
-      toast.success('Done!')
-    } catch (e: any) { toast.error(e.response?.data?.error || 'Action failed') }
-    finally { setConf(null) }
+  const ACTION_SUCCESS: Record<string, string> = {
+    'confirm-seller': 'Viewing confirmed',
+    'confirm-buyer': 'Viewing confirmed',
+    'complete': 'Viewing marked as completed',
+    'cancel': 'Viewing cancelled',
   }
+
+  const doAction = async (id: string, action: string, reason?: string) => {
+    try {
+      await actionMutation.mutateAsync({ id, action, reason })
+      toast.success(ACTION_SUCCESS[action] || 'Viewing updated')
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Action failed') }
+    finally { setConf(null); setCancelReason('') }
+  }
+
+  const ACTION_MODAL: Record<string, { title: string; message: string; label: string }> = {
+    'confirm-seller': { title: 'Confirm viewing', message: 'Confirm you’re available for this viewing?', label: 'Confirm viewing' },
+    'confirm-buyer': { title: 'Confirm viewing', message: 'Confirm you’ll attend this viewing?', label: 'Confirm viewing' },
+    'complete': { title: 'Mark as completed', message: 'Mark this viewing as completed?', label: 'Mark completed' },
+    'cancel': { title: 'Cancel viewing', message: 'Are you sure you want to cancel this viewing?', label: 'Cancel viewing' },
+  }
+  const confirmModal = confirm ? ACTION_MODAL[confirm.action] : null
 
   if (isLoading) return <PageLoader/>
 
@@ -104,13 +121,23 @@ function ViewingsPageInner() {
         </div>
       )}
 
-      <ConfirmModal open={!!confirm} onClose={() => setConf(null)}
-        onConfirm={() => confirm && doAction(confirm.id, confirm.action)}
-        title={confirm?.action==='cancel' ? 'Cancel viewing' : 'Confirm action'}
-        message={confirm?.action==='cancel' ? 'Are you sure you want to cancel this viewing?' : 'Confirm this action?'}
-        label={confirm?.action==='cancel'?'Cancel viewing':'Confirm'}
+      <ConfirmModal open={!!confirm} onClose={() => { setConf(null); setCancelReason('') }}
+        onConfirm={() => confirm && doAction(confirm.id, confirm.action, cancelReason)}
+        title={confirmModal?.title ?? 'Confirm action'}
+        message={confirmModal?.message ?? 'Confirm this action?'}
+        label={confirmModal?.label ?? 'Confirm'}
         danger={confirm?.action==='cancel'}
-        loading={actionMutation.isPending}/>
+        loading={actionMutation.isPending}>
+        {confirm?.action === 'cancel' && (
+          <textarea
+            value={cancelReason}
+            onChange={e => setCancelReason(e.target.value)}
+            placeholder="Optional: let the other party know why (e.g. schedule conflict, property no longer available)"
+            rows={3}
+            className="input-base mt-3 h-auto py-2"
+          />
+        )}
+      </ConfirmModal>
     </div>
   )
 }
@@ -160,6 +187,15 @@ function ViewingCard({ viewing:v, role, onAction, acting }:{ viewing:ViewingResp
           <span>Viewing fee:</span>
           <StatusBadge status={v.viewingFeeStatus} size="sm"/>
           {v.completedAt && <span className="ml-auto">Completed: {fmt.date(v.completedAt)}</span>}
+        </div>
+      )}
+
+      {v.status === 'CANCELLED' && (
+        <div className="mt-3 pt-3 border-t border-base text-xs text-muted">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            Cancelled by {v.cancelledBy === v.sellerId ? 'seller' : v.cancelledBy === v.buyerId ? 'buyer' : 'system'}:
+          </span>{' '}
+          {v.cancellationReason || 'No reason given'}
         </div>
       )}
     </Card>

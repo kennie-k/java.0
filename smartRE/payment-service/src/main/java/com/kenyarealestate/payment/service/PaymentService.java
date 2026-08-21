@@ -92,6 +92,10 @@ public class PaymentService {
                 throw new RuntimeException("This property has not completed identity and title verification and cannot be paid for yet");
             }
         }
+        UUID actualSellerId = propertyServiceClient.getSellerId(req.getPropertyId());
+        if (actualSellerId != null && !actualSellerId.equals(req.getSellerId())) {
+            throw new RuntimeException("Seller does not match the property's registered owner");
+        }
         if (upperType.equals("VIEWING_FEE") && req.getAmount().compareTo(viewingFeeKes) != 0) {
             throw new RuntimeException("Viewing fee must be exactly KES " + viewingFeeKes);
         }
@@ -107,11 +111,13 @@ public class PaymentService {
             return toResponse(repo.findByIdempotencyKey(idemKey).orElseThrow());
         }
 
-        if (!lockService.acquireLock(idemKey)) {
+        String lockToken = lockService.acquireLock(idemKey);
+        if (lockToken == null) {
             try { Thread.sleep(200); } catch (InterruptedException ignored) {}
             if (repo.existsByIdempotencyKey(idemKey)) {
                 return toResponse(repo.findByIdempotencyKey(idemKey).orElseThrow());
             }
+            throw new RuntimeException("A payment request for this is already in progress. Please try again in a few seconds.");
         }
 
         try {
@@ -124,7 +130,9 @@ public class PaymentService {
                     .phoneNumber(req.getPhoneNumber())
                     .initiatedByIp(clientIp)
                     .idempotencyKey(idemKey)
+                    .createdAt(java.time.LocalDateTime.now())
                     .build());
+            repo.flush();
 
             auditService.log(payment.getId(), null, "PAYMENT_INITIATED",
                     null, PaymentStatus.PENDING.name(),
@@ -160,9 +168,9 @@ public class PaymentService {
                         "STK push rejected: " + result.responseDescription());
             }
 
-            return toResponse(repo.save(payment));
+            return toResponse(payment);
         } finally {
-            lockService.releaseLock(idemKey);
+            lockService.releaseLock(idemKey, lockToken);
         }
     }
 
@@ -171,7 +179,7 @@ public class PaymentService {
         var callback = req.getBody().getStkCallback();
         String checkoutId = callback.getCheckoutRequestId();
 
-        Payment payment = repo.findByMpesaCheckoutRequestId(checkoutId).orElse(null);
+        Payment payment = repo.findByMpesaCheckoutRequestIdForUpdate(checkoutId).orElse(null);
 
         rawCallbackRepo.save(MpesaRawCallback.builder()
                 .callbackType("STK_PUSH")
@@ -187,8 +195,27 @@ public class PaymentService {
             return;
         }
 
-        if (payment.getStatus() == PaymentStatus.COMPLETED
-                || payment.getStatus() == PaymentStatus.FAILED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+
+            if (payment.getMpesaReceiptNumber() == null && callback.getResultCode() == 0
+                    && callback.getCallbackMetadata() != null && callback.getCallbackMetadata().getItems() != null) {
+                for (var item : callback.getCallbackMetadata().getItems()) {
+                    if ("MpesaReceiptNumber".equals(item.getName())) {
+                        payment.setMpesaReceiptNumber(String.valueOf(item.getValue()));
+                    }
+                    if ("TransactionDate".equals(item.getName())) {
+                        payment.setMpesaTransactionDate(String.valueOf(item.getValue()));
+                    }
+                }
+                repo.save(payment);
+                log.info("Backfilled receipt for already-completed paymentId={} from late callback", payment.getId());
+            } else {
+                log.info("Duplicate M-Pesa callback for checkoutId={} — ignoring", checkoutId);
+            }
+            return;
+        }
+
+        if (payment.getStatus() == PaymentStatus.FAILED) {
             log.info("Duplicate M-Pesa callback for checkoutId={} — ignoring", checkoutId);
             auditService.log(payment.getId(), null, "DUPLICATE_CALLBACK_IGNORED",
                     payment.getStatus().name(), payment.getStatus().name(),
@@ -266,7 +293,7 @@ public class PaymentService {
             receiptService.issueReceipt(payment, BigDecimal.ZERO, payment.getAmount(),
                     payment.getPhoneNumber(), "MPESA", null);
 
-            eventPublisher.publishPaymentCompleted(payment);
+            eventPublisher.recordAndPublish(payment);
             if (payment.getPaymentType() == PaymentType.PROFILE_ACCESS) {
                 grantProfileAccess(payment.getBuyerId(), payment.getSellerId());
             }
@@ -289,6 +316,71 @@ public class PaymentService {
         }
     }
 
+    @Transactional
+    public void reconcileOne(UUID paymentId, boolean forceTimeoutFail) {
+        Payment payment = repo.findByIdForUpdate(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != PaymentStatus.STK_PUSHED) return;
+        if (payment.getMpesaCheckoutRequestId() == null) return;
+
+        String prevStatus = payment.getStatus().name();
+        MpesaClient.StkQueryResult q = mpesaClient.queryStkStatus(payment.getMpesaCheckoutRequestId());
+
+        if (!q.resolved()) {
+            if (forceTimeoutFail) {
+                payment.setStatus(PaymentStatus.FAILED);
+                payment.setFailureReason("Payment timed out - no confirmation received from M-Pesa");
+                repo.save(payment);
+                auditService.log(payment.getId(), null, "PAYMENT_RECONCILE_TIMEOUT",
+                        prevStatus, PaymentStatus.FAILED.name(),
+                        null, "RECONCILIATION_JOB", null,
+                        null, payment.getAmount(),
+                        "No M-Pesa confirmation after grace period. checkoutId=" + payment.getMpesaCheckoutRequestId());
+                log.warn("Payment reconciliation timeout paymentId={}", payment.getId());
+            }
+            return;
+        }
+
+        if (q.succeeded()) {
+            payment.setStatus(PaymentStatus.COMPLETED);
+            repo.save(payment);
+            auditService.log(payment.getId(), null, "PAYMENT_COMPLETED",
+                    prevStatus, PaymentStatus.COMPLETED.name(),
+                    null, "RECONCILIATION_JOB", null,
+                    null, payment.getAmount(),
+                    "Confirmed via STK status query (callback never arrived). checkoutId="
+                            + payment.getMpesaCheckoutRequestId());
+
+            receiptService.issueReceipt(payment, BigDecimal.ZERO, payment.getAmount(),
+                    payment.getPhoneNumber(), "MPESA", null);
+            eventPublisher.recordAndPublish(payment);
+            if (payment.getPaymentType() == PaymentType.PROFILE_ACCESS) {
+                grantProfileAccess(payment.getBuyerId(), payment.getSellerId());
+            }
+            if (payment.getPaymentType() == PaymentType.VIEWING_FEE) {
+                revenueService.recordViewingFee(payment.getId(), payment.getBuyerId(),
+                        payment.getSellerId(), payment.getPropertyId());
+            }
+            log.info("Payment COMPLETED via reconciliation paymentId={}", payment.getId());
+        } else {
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setFailureReason(q.resultDesc());
+            repo.save(payment);
+            auditService.log(payment.getId(), null, "PAYMENT_FAILED",
+                    prevStatus, PaymentStatus.FAILED.name(),
+                    null, "RECONCILIATION_JOB", null,
+                    null, payment.getAmount(),
+                    "Resolved via STK status query. ResultCode=" + q.resultCode() + " Reason=" + q.resultDesc());
+            log.warn("Payment FAILED via reconciliation paymentId={} reason={}", payment.getId(), q.resultDesc());
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> findStaleStkPushed(int graceSeconds) {
+        return repo.findByStatusAndCreatedAtBefore(PaymentStatus.STK_PUSHED,
+                        LocalDateTime.now().minusSeconds(graceSeconds))
+                .stream().map(Payment::getId).collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public PaymentResponse getByIdAndBuyer(UUID paymentId, UUID buyerId) {
         Payment p = repo.findById(paymentId)
@@ -298,8 +390,25 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
+    public PaymentResponse getById(UUID paymentId) {
+        Payment p = repo.findById(paymentId)
+                .orElseThrow(() -> new RuntimeException("Payment not found"));
+        return toResponse(p);
+    }
+
+    @Transactional(readOnly = true)
     public Page<PaymentResponse> getByBuyer(UUID buyerId, Pageable p) {
         return repo.findByBuyerId(buyerId, p).map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentSummaryResponse getBuyerSummary(UUID buyerId) {
+        return PaymentSummaryResponse.builder()
+                .totalPaid(repo.sumAmountByBuyerIdAndStatus(buyerId, PaymentStatus.COMPLETED))
+                .completedCount(repo.countByBuyerIdAndStatus(buyerId, PaymentStatus.COMPLETED))
+                .pendingCount(repo.countByBuyerIdAndStatusIn(buyerId,
+                        List.of(PaymentStatus.PENDING, PaymentStatus.STK_PUSHED)))
+                .build();
     }
 
     @Transactional(readOnly = true)

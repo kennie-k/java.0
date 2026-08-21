@@ -18,6 +18,7 @@ export interface UserResponse {
   role: Role
   verified: boolean
   active: boolean
+  superAdmin?: boolean
   profileImage?: string
   accountType?: 'INDIVIDUAL' | 'COMPANY'
   companyName?: string
@@ -35,7 +36,7 @@ export interface UserResponse {
   createdAt: string
 }
 
-export type PropertyType = 'HOUSE' | 'APARTMENT' | 'LAND' | 'COMMERCIAL' | 'VILLA'
+export type PropertyType = 'HOUSE' | 'APARTMENT' | 'LAND' | 'COMMERCIAL' | 'TOWNHOUSE' | 'STUDIO' | 'VILLA'
 export type ListingType = 'SALE' | 'RENT'
 export type ListingStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED' | 'SOLD' | 'RENTED' | 'WITHDRAWN'
 
@@ -134,6 +135,8 @@ export interface OwnershipDocumentResponse {
   id: string
   documentCategory: string
   documentUrl: string
+  isRequired?: boolean
+  humanReviewedAt?: string
   lcAdvocateStampPresent?: boolean
   lcAdvocateSignaturePresent?: boolean
   lcCommissionerOathsPresent?: boolean
@@ -208,6 +211,7 @@ export interface ViewingResponse {
   sellerConfirmed: boolean
   viewingFeePaymentId?: string
   viewingFeeStatus?: string
+  cancelledBy?: string
   cancellationReason?: string
   createdAt?: string
   updatedAt?: string
@@ -314,6 +318,14 @@ export interface SellerRatingResponse {
   sellerId: string
   averageRating: number
   reviewCount: number
+}
+
+export interface ReviewAdminStatsResponse {
+  totalReviews: number
+  visibleReviews: number
+  hiddenReviews: number
+  averageRating: number
+  ratingDistribution: { rating: number; count: number }[]
 }
 
 export type ReportTargetType = 'LISTING' | 'USER' | 'REVIEW'

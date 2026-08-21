@@ -5,11 +5,13 @@ import { Users, Search, ShieldCheck, ShieldPlus, Ban, RotateCcw } from 'lucide-r
 import { useUsers } from '@/hooks/useUsers'
 import type { Role, UserResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
 import { ConfirmModal, EmptyState, PageLoader } from '@/components/ui/Modal'
 import { InlineError } from '@/components/ui/InlineError'
+import { Pagination } from '@/components/ui/Pagination'
 import { fmt } from '@/lib/utils'
 
 const VALID_ROLES: Role[] = ['BUYER', 'SELLER', 'AGENT', 'ADMIN']
@@ -19,7 +21,11 @@ export default function UsersPage() {
 }
 
 function UsersPageInner() {
-  const { users, loading, error, sellers, agents, buyers, admins, promote, promotingId, ban, unban, banningId } = useUsers()
+  const {
+    users, loading, error, sellers, agents, buyers, admins,
+    page, setPage, totalPages, totalElements,
+    promote, promotingId, ban, unban, banningId,
+  } = useUsers()
   const sp = useSearchParams()
   const roleParam = sp.get('role')
   const [search, setSearch] = useState('')
@@ -57,7 +63,7 @@ function UsersPageInner() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Users</h1>
-          <p className="text-muted text-sm mt-1">{filtered.length} of {users.length} registered users</p>
+          <p className="text-muted text-sm mt-1">{filtered.length} of {users.length} on this page · {totalElements} total</p>
         </div>
         <div className="w-48">
           <Select label="Role" options={[
@@ -87,7 +93,10 @@ function UsersPageInner() {
 
       <Card>
         {error && <InlineError message={error}/>}
-        <Input leftIcon={<Search size={15}/>} placeholder="Search by name or email..." value={search} onChange={e => setSearch(e.target.value)} className="mb-4"/>
+        <Input leftIcon={<Search size={15}/>} placeholder="Search by name or email..." value={search} onChange={e => setSearch(e.target.value)} className="mb-1.5"/>
+        {(search || roleFilter) && (
+          <p className="text-[11px] text-muted mb-3">Search and role filters only apply to the current page — use Previous/Next to browse the rest of {totalElements} users.</p>
+        )}
         {filtered.length === 0 ? (
           <EmptyState icon={<Users size={24}/>} title="No users found"/>
         ) : (
@@ -100,9 +109,9 @@ function UsersPageInner() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-sm text-gray-900 dark:text-white">{u.fullName}</p>
-                    <span className={`badge text-xs ${u.role === 'ADMIN' ? 'bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-400' : u.role === 'AGENT' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : u.role === 'SELLER' ? 'bg-gold-50 text-gold-600 dark:bg-gold-500/10 dark:text-gold-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400'}`}>{u.role}</span>
-                    {u.verified && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-xs"><ShieldCheck size={10}/>Verified</span>}
-                    {!u.active && <span className="badge bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 text-xs">Banned</span>}
+                    <Badge size="sm" variant={u.role === 'ADMIN' ? 'purple' : u.role === 'AGENT' ? 'success' : u.role === 'SELLER' ? 'gold' : 'info'}>{u.role}</Badge>
+                    {u.verified && <Badge variant="success" size="sm"><ShieldCheck size={10}/>Verified</Badge>}
+                    {!u.active && <Badge variant="error" size="sm">Banned</Badge>}
                   </div>
                   <p className="text-xs text-muted">{u.email}</p>
                 </div>
@@ -122,6 +131,7 @@ function UsersPageInner() {
             ))}
           </div>
         )}
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-4"/>
       </Card>
 
       <ConfirmModal open={!!target} onClose={() => setTarget(null)} onConfirm={confirmPromote} loading={promotingId === target?.id}

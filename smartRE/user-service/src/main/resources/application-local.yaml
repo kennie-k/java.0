@@ -39,6 +39,7 @@ jwt:
 
 services:
   verification-url: http://localhost:8082
+  internal-secret: smartre-internal-secret-2026
 
 app:
   public-url: http://localhost:8080

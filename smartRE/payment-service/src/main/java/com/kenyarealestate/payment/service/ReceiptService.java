@@ -56,6 +56,16 @@ public class ReceiptService {
         }
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void voidReceiptIfExists(UUID paymentId, String reason) {
+        repo.findByPaymentId(paymentId).ifPresent(r -> {
+            r.setStatus("VOIDED");
+            r.setVoidReason(reason);
+            r.setVoidedAt(LocalDateTime.now());
+            repo.save(r);
+        });
+    }
+
     @Transactional(readOnly = true)
     public PaymentReceiptResponse getByPaymentId(UUID paymentId) {
         return toResponse(repo.findByPaymentId(paymentId)

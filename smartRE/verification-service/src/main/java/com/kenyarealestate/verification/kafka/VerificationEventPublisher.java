@@ -1,10 +1,14 @@
 package com.kenyarealestate.verification.kafka;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -31,7 +35,11 @@ public class VerificationEventPublisher {
                 .approvedAt(approvedAt)
                 .expiresAt(expiresAt)
                 .build();
-        kafkaTemplate.send(topic, sellerId.toString(), event)
+
+        ProducerRecord<String, Object> record = new ProducerRecord<>(topic, sellerId.toString(), event);
+        attachTraceHeader(record);
+
+        kafkaTemplate.send(record)
                 .whenComplete((result, ex) -> {
                     if (ex != null) log.error("Failed to publish IDENTITY_APPROVED event: {}", ex.getMessage());
                     else log.info("Published IDENTITY_APPROVED for seller {}", sellerId);
@@ -51,10 +59,20 @@ public class VerificationEventPublisher {
                 .parcelNumber(parcelNumber)
                 .titleDeedNumber(titleDeedNumber)
                 .build();
-        kafkaTemplate.send(topic, propertyId.toString(), event)
+
+        ProducerRecord<String, Object> record = new ProducerRecord<>(topic, propertyId.toString(), event);
+        attachTraceHeader(record);
+
+        kafkaTemplate.send(record)
                 .whenComplete((result, ex) -> {
                     if (ex != null) log.error("Failed to publish OWNERSHIP_APPROVED event: {}", ex.getMessage());
                     else log.info("Published OWNERSHIP_APPROVED for property {}", propertyId);
                 });
+    }
+
+    private void attachTraceHeader(ProducerRecord<String, Object> record) {
+        String correlationId = MDC.get("traceId");
+        if (!StringUtils.hasText(correlationId)) correlationId = UUID.randomUUID().toString();
+        record.headers().add("X-Correlation-Id", correlationId.getBytes(StandardCharsets.UTF_8));
     }
 }

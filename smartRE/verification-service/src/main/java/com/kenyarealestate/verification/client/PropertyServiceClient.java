@@ -77,4 +77,25 @@ public class PropertyServiceClient {
         log.error("ALERT: Failed to mark ownership verified for property {} after 3 retries. " +
                 "Manual intervention required. Error: {}", propertyId, ex.getMessage());
     }
+
+    @CircuitBreaker(name = "property-service", fallbackMethod = "recoverSuspendAll")
+    @Retryable(
+        retryFor = RestClientException.class,
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public void suspendAllListingsForSeller(UUID sellerId, String reason) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Secret", internalSecret);
+        String url = propertyUrl + "/api/properties/internal/seller/" + sellerId + "/suspend-all"
+                + "?reason=" + java.net.URLEncoder.encode(reason, java.nio.charset.StandardCharsets.UTF_8);
+        restTemplate.exchange(url, HttpMethod.PUT, new HttpEntity<>(headers), Void.class);
+        log.info("Suspended all listings for permanently banned seller {}", sellerId);
+    }
+
+    @Recover
+    public void recoverSuspendAll(RestClientException ex, UUID sellerId, String reason) {
+        log.error("ALERT: Failed to suspend listings for permanently banned seller {} after 3 retries. " +
+                "Their listings remain active. Manual intervention required. Error: {}", sellerId, ex.getMessage());
+    }
 }

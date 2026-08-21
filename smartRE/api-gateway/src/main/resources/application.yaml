@@ -8,6 +8,11 @@ spring:
       password: ${REDIS_PASSWORD:}
   cloud:
     gateway:
+      httpclient:
+        # Prevents a hung/slow downstream service from holding a gateway connection
+        # (and the caller's request) open indefinitely.
+        connect-timeout: 3000
+        response-timeout: 5s
       globalcors:
         corsConfigurations:
           '[/**]':
@@ -15,9 +20,10 @@ spring:
             allowedMethods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"]
             allowedHeaders: "*"
             allowCredentials: true
-            exposedHeaders: ["Authorization"]
+            exposedHeaders: ["Authorization", "X-Error-Reason"]
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - RemoveRequestHeader=X-Internal-Secret
         - name: RequestRateLimiter
           args:
             redis-rate-limiter.replenishRate: 50
@@ -39,6 +45,10 @@ spring:
                 redis-rate-limiter.burstCapacity: 5
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: auth-forgot-password-strict
           uri: http://user-service:8081
@@ -52,56 +62,92 @@ spring:
                 redis-rate-limiter.burstCapacity: 5
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: auth-open
           uri: http://user-service:8081
           predicates: [Path=/api/auth/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         # ── USERS ────────────────────────────────────────────────
         - id: user-me-secured
           uri: http://user-service:8081
-          predicates: [Path=/api/users/me,/api/users/me/password]
-          filters: [AuthFilter]
+          predicates: ["Path=/api/users/me,/api/users/me/password"]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: user-admin-secured
           uri: http://user-service:8081
           predicates: [Path=/api/users/admin/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: user-detail-open
           uri: http://user-service:8081
           predicates:
             - Path=/api/users/{id}
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: user-secured
           uri: http://user-service:8081
           predicates: [Path=/api/users/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         # ── AGENT APPLICATIONS ───────────────────────────────────
         - id: agent-applications-secured
           uri: http://user-service:8081
           predicates: [Path=/api/agent-applications/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         # ── VERIFICATION ─────────────────────────────────────────
         - id: verif-trust-open
           uri: http://verification-service:8082
           predicates: [Path=/api/verification/trust-status/**]
-
-        - id: verif-identity-internal-open
-          uri: http://verification-service:8082
-          predicates: [Path=/api/verification/identity/internal/**]
-
-        - id: verif-ownership-internal-open
-          uri: http://verification-service:8082
-          predicates: [Path=/api/verification/ownership/internal/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: verificationServiceCB
+                fallbackUri: forward:/fallback/verification-service
 
         - id: verif-secured
           uri: http://verification-service:8082
           predicates: [Path=/api/verification/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: verificationServiceCB
+                fallbackUri: forward:/fallback/verification-service
 
         # ── PROPERTIES ───────────────────────────────────────────
         - id: property-my-secured
@@ -109,81 +155,211 @@ spring:
           predicates:
             - Path=/api/properties/my
             - Method=GET
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: propertyServiceCB
+                fallbackUri: forward:/fallback/property-service
 
         - id: property-search-open
           uri: http://property-service:8083
           predicates:
             - Path=/api/properties/search
             - Method=GET
-
-        - id: property-internal-open
-          uri: http://property-service:8083
-          predicates: [Path=/api/properties/internal/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: propertyServiceCB
+                fallbackUri: forward:/fallback/property-service
 
         - id: property-detail-open
           uri: http://property-service:8083
           predicates:
             - Path=/api/properties/{id}
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: propertyServiceCB
+                fallbackUri: forward:/fallback/property-service
 
         - id: property-by-seller-open
           uri: http://property-service:8083
           predicates:
             - Path=/api/properties/seller/{sellerId}
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: propertyServiceCB
+                fallbackUri: forward:/fallback/property-service
 
         - id: property-secured
           uri: http://property-service:8083
           predicates: [Path=/api/properties/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: propertyServiceCB
+                fallbackUri: forward:/fallback/property-service
 
         # ── VIEWINGS ─────────────────────────────────────────────
-        - id: viewing-internal-open
+        - id: viewing-schedule-strict
           uri: http://viewing-service:8084
-          predicates: [Path=/api/viewings/internal/**]
+          predicates:
+            - Path=/api/viewings
+            - Method=POST
+          filters:
+            - AuthFilter
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 3
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: viewingServiceCB
+                fallbackUri: forward:/fallback/viewing-service
 
         - id: viewing-secured
           uri: http://viewing-service:8084
           predicates: [Path=/api/viewings/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: viewingServiceCB
+                fallbackUri: forward:/fallback/viewing-service
 
         # ── PAYMENTS ─────────────────────────────────────────────
         - id: revenue-b2c-callback-open
           uri: http://payment-service:8085
           predicates: [Path=/api/revenue/mpesa/b2c/callback/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
+
+        - id: revenue-b2c-status-callback-open
+          uri: http://payment-service:8085
+          predicates: [Path=/api/revenue/mpesa/b2c/status-callback/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
 
         - id: revenue-secured
           uri: http://payment-service:8085
           predicates: [Path=/api/revenue/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
 
         - id: payment-mpesa-callback-open
           uri: http://payment-service:8085
           predicates: [Path=/api/payments/mpesa/callback/**]
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
 
         - id: payment-config-open
           uri: http://payment-service:8085
           predicates:
             - Path=/api/payments/config
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
+
+        - id: payment-initiate-strict
+          uri: http://payment-service:8085
+          predicates:
+            - Path=/api/payments/initiate
+            - Method=POST
+          filters:
+            - AuthFilter
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 3
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
 
         - id: payment-secured
           uri: http://payment-service:8085
           predicates: [Path=/api/payments/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
 
         # ── REVIEWS ──────────────────────────────────────────────
+        - id: review-admin-secured
+          uri: http://review-service:8086
+          predicates: [Path=/api/reviews/admin/**]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: reviewServiceCB
+                fallbackUri: forward:/fallback/review-service
+
         - id: review-read-open
           uri: http://review-service:8086
           predicates:
             - Path=/api/reviews/**
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: reviewServiceCB
+                fallbackUri: forward:/fallback/review-service
+
+        - id: review-create-strict
+          uri: http://review-service:8086
+          predicates:
+            - Path=/api/reviews
+            - Method=POST
+          filters:
+            - AuthFilter
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: reviewServiceCB
+                fallbackUri: forward:/fallback/review-service
 
         - id: review-secured
           uri: http://review-service:8086
           predicates: [Path=/api/reviews/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: reviewServiceCB
+                fallbackUri: forward:/fallback/review-service
 
 
         - id: document-files-public
@@ -191,20 +367,37 @@ spring:
           predicates:
             - Path=/api/documents/files/documents/property_image/**,/api/documents/files/documents/profile_image/**
             - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: document-files-secured
           uri: http://user-service:8081
           predicates:
             - Path=/api/documents/files/**
             - Method=GET
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         - id: document-upload
           uri: http://user-service:8081
           predicates: [Path=/api/documents/**]
-          filters: [AuthFilter]
+          filters:
+            - AuthFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
 
         # ── SWAGGER PASSTHROUGHS ──────────────────────────────────
+        # Docs proxying is low-value/low-risk traffic; left without circuit breakers
+        # on purpose to keep the failure domain focused on real API traffic.
         - id: swagger-user
           uri: http://user-service:8081
           predicates: [Path=/docs/user-service/**]
@@ -269,3 +462,44 @@ management:
 
 gateway:
   signing-secret: ${GATEWAY_SIGNING_SECRET}
+
+# ── Resilience4j circuit breakers ───────────────────────────────────
+# One breaker per downstream service so an outage in one service can't trip
+# breakers for unrelated routes. All instances share the "default" config
+# below; the CircuitBreaker route filters (see routes above) reference these
+# names and fall back to FallbackController, which returns a clean 503.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 4s
+        waitDurationInOpenState: 20s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+    instances:
+      userServiceCB: { baseConfig: default }
+      verificationServiceCB: { baseConfig: default }
+      propertyServiceCB: { baseConfig: default }
+      viewingServiceCB: { baseConfig: default }
+      paymentServiceCB: { baseConfig: default }
+      reviewServiceCB: { baseConfig: default }
+  timelimiter:
+    configs:
+      default:
+        # Must stay at/under spring.cloud.gateway.httpclient.response-timeout above,
+        # otherwise the time limiter never gets a chance to trip.
+        timeoutDuration: 4900ms
+        cancelRunningFuture: true
+    instances:
+      userServiceCB: { baseConfig: default }
+      verificationServiceCB: { baseConfig: default }
+      propertyServiceCB: { baseConfig: default }
+      viewingServiceCB: { baseConfig: default }
+      paymentServiceCB: { baseConfig: default }
+      reviewServiceCB: { baseConfig: default }

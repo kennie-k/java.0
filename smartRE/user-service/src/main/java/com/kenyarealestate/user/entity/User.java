@@ -85,6 +85,10 @@ public class User {
     @Column(name = "is_active")
     private boolean active = true;
 
+    @Builder.Default
+    @Column(name = "is_super_admin", nullable = false)
+    private boolean superAdmin = false;
+
     @Column(name = "profile_image")
     private String profileImage;
 
@@ -105,4 +109,11 @@ public class User {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @PreRemove
+    private void guardSuperAdmin() {
+        if (superAdmin) {
+            throw new IllegalStateException("The super admin account cannot be deleted.");
+        }
+    }
 }

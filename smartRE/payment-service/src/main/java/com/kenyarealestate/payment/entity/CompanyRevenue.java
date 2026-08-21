@@ -87,6 +87,12 @@ public class CompanyRevenue {
     @Column(name = "payout_account_name", length = 255)
     private String payoutAccountName;
 
+    @Column(name = "status_query_conversation_id")
+    private String statusQueryConversationId;
+
+    @Column(name = "status_query_sent_at")
+    private LocalDateTime statusQuerySentAt;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

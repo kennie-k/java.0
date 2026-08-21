@@ -61,6 +61,30 @@ public class ReviewController {
         return ResponseEntity.ok(svc.getSellerRating(sellerId));
     }
 
+    @GetMapping("/admin/all")
+    public ResponseEntity<Page<ReviewResponse>> adminAll(
+            @RequestParam(required = false) Boolean visible,
+            @RequestParam(defaultValue = "0")  @Min(0)       int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(1000) int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "DESC") String direction) {
+        Sort.Direction dir = "ASC".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return ResponseEntity.ok(svc.adminGetAll(visible, PageRequest.of(page, size, Sort.by(dir, sortBy))));
+    }
+
+    @GetMapping("/admin/stats")
+    public ResponseEntity<ReviewAdminStatsResponse> adminStats() {
+        return ResponseEntity.ok(svc.getAdminStats());
+    }
+
+    @PutMapping("/admin/{id}/hide")
+    public ResponseEntity<ReviewResponse> adminHide(
+            @PathVariable UUID id,
+            @RequestParam(required = false, defaultValue = "Reported as fake or abusive") String reason,
+            HttpServletRequest r) {
+        return ResponseEntity.ok(svc.adminHide(id, resolveUserId(r), reason));
+    }
+
     @GetMapping("/my")
     public ResponseEntity<Page<ReviewResponse>> myReviews(
             HttpServletRequest r,

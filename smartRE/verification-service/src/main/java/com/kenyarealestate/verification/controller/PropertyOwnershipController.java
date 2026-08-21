@@ -40,6 +40,12 @@ public class PropertyOwnershipController {
         return ResponseEntity.ok(service.uploadDocument(resolveUserId(httpReq), verificationId, req));
     }
 
+    @DeleteMapping("/{verificationId}/documents/{documentId}")
+    public ResponseEntity<OwnershipVerificationResponse> deleteDocument(
+            HttpServletRequest httpReq, @PathVariable UUID verificationId, @PathVariable UUID documentId) {
+        return ResponseEntity.ok(service.deleteDocument(resolveUserId(httpReq), verificationId, documentId));
+    }
+
     @PostMapping("/{verificationId}/submit")
     public ResponseEntity<OwnershipVerificationResponse> submit(
             HttpServletRequest httpReq, @PathVariable UUID verificationId) {

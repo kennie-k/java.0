@@ -6,8 +6,9 @@ import {
 } from 'lucide-react'
 import { useAdminOverview } from '@/hooks/useAdminOverview'
 import { Card, StatCard } from '@/components/ui/Card'
-import { StatusBadge } from '@/components/ui/Badge'
+import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
 import { fmt, cn } from '@/lib/utils'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -39,21 +40,22 @@ function AttentionCard({ icon, tone, label, value, sub, href }:
 }
 
 export default function AdminOverview() {
-  const { loading, summary, revenue, users, properties, idQueue, ownQueue, stats, query, setQuery, searchResults, growth } = useAdminOverview()
+  const { loading, error, summary, revenue, users, properties, idQueue, ownQueue, stats, query, setQuery, searchResults, growth } = useAdminOverview()
 
   if (loading) return <PageLoader/>
 
   return (
     <div className="space-y-7 pb-10">
+      {error && <InlineError message="Some dashboard data failed to load — figures below may be incomplete."/>}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-semibold text-gray-900 dark:text-white">Command Center</h1>
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Command Center</h1>
           <p className="text-[12.5px] text-muted mt-1">{users.length} users · {properties.length} listings · {fmt.currency(summary?.totalPlatformFees || 0)} lifetime revenue</p>
         </div>
         <div className="relative w-full sm:w-72">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search users, properties, counties..."
-            className="w-full h-9 pl-8 pr-3 rounded-lg bg-gray-50 dark:bg-white/5 text-[12px] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gold-500/20 border border-base transition-all"/>
+            className="w-full h-9 pl-8 pr-3 rounded-lg bg-gray-50 dark:bg-white/5 text-[12px] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gold-500/20 border border-base focus:border-gold-500 transition-all"/>
           {searchResults && (searchResults.users.length > 0 || searchResults.properties.length > 0) && (
             <div className="absolute right-0 top-[calc(100%+6px)] w-80 card z-50 py-1 max-h-80 overflow-auto animate-fade-in">
               {searchResults.users.length > 0 && (
@@ -83,11 +85,15 @@ export default function AdminOverview() {
         <SectionLabel>Overview</SectionLabel>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Lifetime revenue" value={fmt.currency(summary?.totalPlatformFees || 0)}
-            sub={<span className={cn('flex items-center gap-0.5', growth >= 0 ? 'text-emerald-500' : 'text-red-500')}>{growth >= 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}{Math.abs(growth)}% vs last month</span>}
+            sub={growth === null
+              ? <span className="text-muted">No revenue last month to compare</span>
+              : <span className={cn('flex items-center gap-0.5', growth >= 0 ? 'text-emerald-500' : 'text-red-500')}>{growth >= 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}{Math.abs(growth)}% vs last month</span>}
             icon={<DollarSign size={16}/>} color="gold"/>
           <StatCard label="Active listings" value={stats.active} sub={`${stats.pending} pending · ${stats.draft} draft`} icon={<Building2 size={16}/>} color="blue"/>
           <StatCard label="Verified users" value={`${stats.verifiedPct}%`} sub={`${stats.buyers} buyers · ${stats.sellers} sellers · ${stats.agents} agents`} icon={<ShieldCheck size={16}/>} color="emerald"/>
-          <StatCard label="Escrow pending" value={stats.pendingPayout} sub={`${fmt.currency(stats.totalPayout)} in payouts`} icon={<Clock size={16}/>} color="purple"/>
+          <StatCard label="Escrow pending" value={stats.pendingPayout}
+            sub={stats.failedPayout > 0 ? `${fmt.currency(stats.totalPayout)} in payouts · ${stats.failedPayout} failed` : `${fmt.currency(stats.totalPayout)} in payouts`}
+            icon={<Clock size={16}/>} color="purple"/>
         </div>
       </div>
 
@@ -127,7 +133,7 @@ export default function AdminOverview() {
                   </defs>
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}/>
-                  <Tooltip formatter={(v: any) => [fmt.currency(v), 'Revenue']} contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                  <Tooltip formatter={(v: any) => [fmt.currency(v), 'Revenue']} contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                   <Area type="monotone" dataKey="value" stroke="#C9A227" strokeWidth={2} fill="url(#rev)"/>
                 </AreaChart>
               </ResponsiveContainer>
@@ -148,7 +154,7 @@ export default function AdminOverview() {
                     dataKey="value" innerRadius={38} outerRadius={58} paddingAngle={3}>
                     <Cell fill="#C9A227"/><Cell fill="#3B82F6"/>
                   </Pie>
-                  <Tooltip formatter={(v: any) => fmt.currency(v)} contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                  <Tooltip formatter={(v: any) => fmt.currency(v)} contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -175,7 +181,7 @@ export default function AdminOverview() {
                 <BarChart data={stats.typeChart}>
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={26}/>
-                  <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                  <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {stats.typeChart.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
                   </Bar>
@@ -231,9 +237,9 @@ export default function AdminOverview() {
           <div className="divide-y divide-gray-100 dark:divide-[#1E1E3A] mt-3">
             {revenue.slice(0, 8).map(r => (
               <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 text-[12px] hover:bg-gray-50/60 dark:hover:bg-white/[0.02] transition-colors">
-                <span className={cn('badge text-[10px]', r.revenueType === 'COMMISSION' ? 'bg-gold-50 text-gold-600 dark:bg-gold-500/10 dark:text-gold-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400')}>
+                <Badge size="sm" variant={r.revenueType === 'TRANSACTION_COMMISSION' ? 'gold' : 'info'}>
                   {r.revenueType.replace('_', ' ')}
-                </span>
+                </Badge>
                 <span className="text-muted flex-1 truncate">{fmt.datetime(r.createdAt)}</span>
                 <span className="text-gray-600 dark:text-gray-300 tabular-nums">{fmt.currency(r.grossAmount)} gross</span>
                 <span className="font-semibold text-gray-900 dark:text-white w-20 text-right tabular-nums">{fmt.currency(r.platformFee)}</span>

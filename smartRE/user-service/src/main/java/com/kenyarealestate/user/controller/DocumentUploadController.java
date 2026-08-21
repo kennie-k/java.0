@@ -1,5 +1,6 @@
 package com.kenyarealestate.user.controller;
 
+import com.kenyarealestate.user.service.DocumentMetadataService;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.*;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.HandlerMapping;
@@ -34,6 +36,15 @@ import java.util.regex.Pattern;
 public class DocumentUploadController {
 
     private static final Pattern SAFE_CATEGORY = Pattern.compile("^[A-Za-z0-9_-]+$");
+
+    private static final String PUBLIC_PROPERTY_IMAGE_PREFIX = "documents/property_image/";
+    private static final String PUBLIC_PROFILE_IMAGE_PREFIX = "documents/profile_image/";
+
+    private final DocumentMetadataService documentMetadataService;
+
+    public DocumentUploadController(DocumentMetadataService documentMetadataService) {
+        this.documentMetadataService = documentMetadataService;
+    }
 
     @Value("${storage.local-dir:/app/uploads}")
     private String localDir;
@@ -96,7 +107,8 @@ public class DocumentUploadController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("category") String category) {
+            @RequestParam("category") String category,
+            Authentication auth) {
 
         if (file.isEmpty()) {
             return ResponseEntity.badRequest()
@@ -136,7 +148,11 @@ public class DocumentUploadController {
 
         try {
             String url = s3Enabled ? uploadToS3(objectKey, file) : saveLocally(objectKey, file);
-            log.info("Document stored ({}): category={} key={}", s3Enabled ? "S3" : "local disk", category, objectKey);
+            documentMetadataService.recordUpload(objectKey, category.toLowerCase(), auth,
+                    file.getContentType(), file.getSize());
+            log.info("Document stored ({}): category={} key={} uploader={}",
+                    s3Enabled ? "S3" : "local disk", category, objectKey,
+                    auth != null ? auth.getName() : "unknown");
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "url", url,
                     "objectKey", objectKey,
@@ -150,10 +166,26 @@ public class DocumentUploadController {
         }
     }
 
-    @GetMapping("/files/**")
-    public ResponseEntity<Resource> serveFile(HttpServletRequest request) {
+    @GetMapping({"/files/**", "/internal/files/**"})
+    public ResponseEntity<Resource> serveFile(HttpServletRequest request, Authentication auth) {
         String path = (String) request.getAttribute(HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE);
-        String key = path.substring("/files/".length());
+        int marker = path.indexOf("/files/");
+        String key = path.substring(marker + "/files/".length());
+
+        // Service-to-service calls (e.g. verification-service hashing a document) come in on
+        // /internal/files/** and are already authenticated by InternalSecretFilter, not by a
+        // user JWT — skip the per-user ownership check for that path.
+        boolean isInternalCall = request.getRequestURI().contains("/internal/files/");
+
+        // Listing/profile images are intentionally public (rendered on public pages without auth).
+        boolean isPublicCategory = key.startsWith(PUBLIC_PROPERTY_IMAGE_PREFIX)
+                || key.startsWith(PUBLIC_PROFILE_IMAGE_PREFIX);
+
+        if (!isInternalCall && !isPublicCategory && !documentMetadataService.canAccess(key, auth)) {
+            // 404 rather than 403 so the endpoint doesn't confirm/deny the existence of a
+            // given document to a caller who isn't entitled to see it either way.
+            return ResponseEntity.notFound().build();
+        }
 
         Path root = Paths.get(localDir).toAbsolutePath().normalize();
         Path target = root.resolve(key).normalize();

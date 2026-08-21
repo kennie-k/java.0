@@ -60,10 +60,23 @@ jwt:
 
 services:
   property-url: ${PROPERTY_SERVICE_URL:http://property-service:8083}
+  user-service-url: ${USER_SERVICE_URL:http://user-service:8081}
   internal-secret: ${INTERNAL_SECRET}
+  # Hosts that a client-supplied documentUrl is allowed to point at before this service will
+  # fetch it server-side (SHA-256 hashing, AI screening). Prevents SSRF: without this, a
+  # malicious documentUrl could make the server fetch arbitrary internal/external resources.
+  # Add the public-facing document/API host (e.g. the api-gateway domain or S3 bucket host)
+  # via this env var in every real deployment.
+  document-url-allowed-hosts: ${DOCUMENT_URL_ALLOWED_HOSTS:localhost,user-service}
   document-analysis-enabled: ${DOCUMENT_ANALYSIS_ENABLED:false}
   document-analysis-url: ${DOCUMENT_ANALYSIS_URL:https://api.yourdocumentai.com}
   document-analysis-key: ${DOCUMENT_ANALYSIS_KEY:placeholder}
+  # Separate OpenAI-compatible chat-completions endpoint used only for single-field
+  # ID number OCR extraction (DocumentAnalysisService.extractIdNumber()). Reuses
+  # document-analysis-enabled as the master on/off switch, but points at a
+  # different server/API shape than document-analysis-url above.
+  ocr-model-url: ${OCR_MODEL_URL:http://localhost:11434/v1}
+  ocr-model-name: ${OCR_MODEL_NAME:qwen3.6:latest}
   smile-identity-enabled: ${SMILE_IDENTITY_ENABLED:false}
   smile-identity-url: ${SMILE_IDENTITY_URL:https://testapi.smileidentity.com/v1}
   smile-identity-partner-id: ${SMILE_IDENTITY_PARTNER_ID:placeholder}

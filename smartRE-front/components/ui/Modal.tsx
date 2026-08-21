@@ -35,14 +35,15 @@ export function Modal({ open, onClose, title, children, size='md', footer }: Mod
   )
 }
 
-export function ConfirmModal({ open,onClose,onConfirm,title,message,label='Confirm',loading,danger=true }:
-  { open:boolean;onClose():void;onConfirm():void;title:string;message:string;label?:string;loading?:boolean;danger?:boolean }) {
+export function ConfirmModal({ open,onClose,onConfirm,title,message,label='Confirm',loading,danger=true,children }:
+  { open:boolean;onClose():void;onConfirm():void;title:string;message:string;label?:string;loading?:boolean;danger?:boolean;children?:ReactNode }) {
   return (
     <Modal open={open} onClose={onClose} title={title} size="sm" footer={
       <><Button variant="secondary" onClick={onClose}>Cancel</Button>
       <Button variant={danger?'danger':'primary'} onClick={onConfirm} loading={loading}>{label}</Button></>
     }>
       <p className="text-gray-600 dark:text-gray-300">{message}</p>
+      {children}
     </Modal>
   )
 }

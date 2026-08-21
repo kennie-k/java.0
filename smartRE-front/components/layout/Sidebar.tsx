@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Building2, ShieldCheck, Calendar,
   CreditCard, Star, BarChart3, Users, X, ListChecks, Search, Gauge, Landmark, Briefcase, Flag,
   ChevronsLeft, ChevronsRight, ChevronDown,
-  List, Plus, UserCheck, Home, Store, PieChart, Receipt, CheckCircle, FileEdit, Ban, AlertCircle, XCircle, Clock,
+  List, Plus, UserCheck, Home, Store, PieChart, Receipt, CheckCircle, FileEdit, Ban, AlertCircle, XCircle, Clock, EyeOff,
 } from 'lucide-react'
 
 type Child = { label:string; href:string; roles?:string[]; icon?:any }
@@ -78,6 +78,11 @@ const adminNav: NavItem[] = [
       { label:'Submitted', href:'/agent-applications?status=SUBMITTED', icon:Clock },
       { label:'Approved',  href:'/agent-applications?status=APPROVED',  icon:CheckCircle },
       { label:'Rejected',  href:'/agent-applications?status=REJECTED',  icon:XCircle },
+    ] },
+  { label:'Reviews',      href:'/reviews',             icon:Star,
+    children:[
+      { label:'All',      href:'/reviews',              icon:List },
+      { label:'Hidden',   href:'/reviews?visible=false', icon:EyeOff },
     ] },
 ]
 

@@ -18,7 +18,7 @@ services:
     logging: *default-logging
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -191,7 +191,7 @@ services:
       RESERVE_POOL_SIZE: 5
       RESERVE_POOL_TIMEOUT: 3
     ports:
-      - "6432:5432"
+      - "127.0.0.1:6432:5432"
     depends_on:
       user-db:
         condition: service_healthy
@@ -232,7 +232,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
     ports:
-      - "6433:5432"
+      - "127.0.0.1:6433:5432"
     depends_on:
       verification-db:
         condition: service_healthy
@@ -273,7 +273,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 30
     ports:
-      - "6434:5432"
+      - "127.0.0.1:6434:5432"
     depends_on:
       property-db:
         condition: service_healthy
@@ -314,7 +314,7 @@ services:
       MAX_CLIENT_CONN: 500
       DEFAULT_POOL_SIZE: 15
     ports:
-      - "6435:5432"
+      - "127.0.0.1:6435:5432"
     depends_on:
       viewing-db:
         condition: service_healthy
@@ -355,7 +355,7 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 25
     ports:
-      - "6436:5432"
+      - "127.0.0.1:6436:5432"
     depends_on:
       payment-db:
         condition: service_healthy
@@ -396,7 +396,7 @@ services:
       MAX_CLIENT_CONN: 500
       DEFAULT_POOL_SIZE: 15
     ports:
-      - "6437:5432"
+      - "127.0.0.1:6437:5432"
     depends_on:
       review-db:
         condition: service_healthy
@@ -420,6 +420,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       S3_ENABLED: ${S3_ENABLED:-false}
@@ -431,6 +434,7 @@ services:
       S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-https://smartre-documents.s3.amazonaws.com}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
       VERIFICATION_SERVICE_URL: http://verification-service:8082
+      PROPERTY_SERVICE_URL: http://property-service:8083
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
@@ -462,6 +466,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       PROPERTY_SERVICE_URL: http://property-service:8083
+      USER_SERVICE_URL: http://user-service:8081
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
       SMILE_IDENTITY_ENABLED: ${SMILE_IDENTITY_ENABLED:-false}
@@ -494,6 +499,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       VERIFICATION_SERVICE_URL: http://verification-service:8082
+      USER_SERVICE_URL: http://user-service:8081
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
       REDIS_HOST: redis
@@ -526,6 +532,7 @@ services:
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       PAYMENT_SERVICE_URL: http://payment-service:8085
+      PROPERTY_SERVICE_URL: http://property-service:8083
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
     depends_on:
@@ -559,18 +566,22 @@ services:
       MPESA_PASSKEY: ${MPESA_PASSKEY:-placeholder}
       MPESA_AUTH_URL: ${MPESA_AUTH_URL:-https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials}
       MPESA_STK_PUSH_URL: ${MPESA_STK_PUSH_URL:-https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest}
+      MPESA_STK_QUERY_URL: ${MPESA_STK_QUERY_URL:-https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query}
       MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL:-https://your-domain.com/api/payments/mpesa/callback}
       MPESA_CALLBACK_SECRET: ${MPESA_CALLBACK_SECRET:?MPESA_CALLBACK_SECRET must be set in .env}
       MPESA_B2C_URL: ${MPESA_B2C_URL:-https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}
       MPESA_B2C_CALLBACK_URL: ${MPESA_B2C_CALLBACK_URL:-https://your-domain.com/api/revenue/mpesa/b2c/callback}
       MPESA_INITIATOR_NAME: ${MPESA_INITIATOR_NAME:-testapi}
       MPESA_INITIATOR_CREDENTIAL: ${MPESA_INITIATOR_CREDENTIAL:-placeholder}
+      MPESA_SECURITY_CREDENTIAL_CERT_PATH: ${MPESA_SECURITY_CREDENTIAL_CERT_PATH:-file:/nonexistent-configure-mpesa-cert}
       PLATFORM_VIEWING_FEE_KES: ${PLATFORM_VIEWING_FEE_KES:-200}
       PLATFORM_COMMISSION_PCT: ${PLATFORM_COMMISSION_PCT:-2.5}
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET must be set in .env}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:?GATEWAY_SIGNING_SECRET must be set in .env}
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ./payment-service/certs:/certs:ro
     depends_on:
       payment-pgbouncer:
         condition: service_healthy

@@ -11,11 +11,12 @@ import Button from '@/components/ui/Button'
 import { Card, StatCard } from '@/components/ui/Card'
 import { StatusBadge, TrustBadge } from '@/components/ui/Badge'
 import { EmptyState, SkeletonCard, PageLoader } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
 import { fmt } from '@/lib/utils'
 
 export default function MyListingsPage() {
   const { ready } = useAuthGuard(SELLER_ROLES, '/dashboard')
-  const { items, loading, active, inReview, closed, totalViews, hasMore, loadMore, loadingMore } = useMyListings()
+  const { items, loading, error, active, inReview, closed, totalViews, hasMore, loadMore, loadingMore } = useMyListings()
 
   const viewsChart = useMemo(() => {
     return [...items]
@@ -36,6 +37,8 @@ export default function MyListingsPage() {
         <Link href="/properties/new"><Button leftIcon={<Plus size={16}/>}>Add property</Button></Link>
       </div>
 
+      {error && <InlineError message="Failed to load your listings."/>}
+
       {!loading && items.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Active" value={active} color="emerald"/>
@@ -55,7 +58,7 @@ export default function MyListingsPage() {
             <BarChart data={viewsChart} layout="vertical" margin={{ left: 0, right: 12 }}>
               <XAxis type="number" hide allowDecimals={false}/>
               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={120}/>
-              <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+              <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
               <Bar dataKey="views" fill="#C9A227" radius={[0, 4, 4, 0]} barSize={16}/>
             </BarChart>
           </ResponsiveContainer>

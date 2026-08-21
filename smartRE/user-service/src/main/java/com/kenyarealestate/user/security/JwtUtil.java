@@ -24,6 +24,7 @@ public class JwtUtil {
     public Claims extractAll(String t) { return Jwts.parser().verifyWith(key()).build().parseSignedClaims(t).getPayload(); }
     public String extractEmail(String t) { return extractAll(t).getSubject(); }
     public String extractRole(String t)  { return extractAll(t).get("role", String.class); }
+    public Date extractIssuedAt(String t) { return extractAll(t).getIssuedAt(); }
     public UUID extractUserId(String t) {
         String uid = extractAll(t).get("userId", String.class);
         return uid != null ? UUID.fromString(uid) : null;

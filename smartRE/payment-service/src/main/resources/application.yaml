@@ -71,12 +71,20 @@ mpesa:
   callback-url:    ${MPESA_CALLBACK_URL:https://your-domain.com/api/payments/mpesa/callback}
   callback-secret: ${MPESA_CALLBACK_SECRET}
   callback-allowed-ips: ${MPESA_CALLBACK_ALLOWED_IPS:}
+  # Local-development-only escape hatch: when callback-allowed-ips is blank, the callback
+  # endpoints fail CLOSED (reject) unless this is true or the active Spring profile is
+  # local/dev/test. Never set this to true outside local development.
+  callback-insecure-allow-all-ips: ${MPESA_CALLBACK_INSECURE_ALLOW_ALL_IPS:false}
   auth-url:        ${MPESA_AUTH_URL:https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials}
   stk-push-url:    ${MPESA_STK_PUSH_URL:https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest}
+  stk-query-url:   ${MPESA_STK_QUERY_URL:https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query}
   b2c-url:         ${MPESA_B2C_URL:https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}
   b2c-callback-url: ${MPESA_B2C_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/callback}
+  b2c-status-query-url: ${MPESA_B2C_STATUS_QUERY_URL:https://sandbox.safaricom.co.ke/mpesa/transactionstatus/v1/query}
+  b2c-status-callback-url: ${MPESA_B2C_STATUS_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/status-callback}
   initiator-name:   ${MPESA_INITIATOR_NAME:testapi}
   initiator-credential: ${MPESA_INITIATOR_CREDENTIAL:Safaricom999!}
+  security-credential-cert-path: ${MPESA_SECURITY_CREDENTIAL_CERT_PATH:file:/nonexistent-configure-mpesa-cert}
 
 management:
   endpoint:
@@ -114,3 +122,9 @@ services:
 
 gateway:
   signing-secret: ${GATEWAY_SIGNING_SECRET}
+
+logging:
+  pattern:
+    # Includes the gateway-issued X-Correlation-Id (see CorrelationIdFilter) so log
+    # lines for a single request can be grepped/correlated across services in Loki.
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [%X{correlationId:-}] [%15.15t] %-40.40logger{39} : %m%n%wEx"

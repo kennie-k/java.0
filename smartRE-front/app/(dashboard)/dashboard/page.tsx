@@ -43,17 +43,17 @@ export default function DashboardPage() {
     queries: [
       {
         queryKey: [...base, 'properties'],
-        queryFn: () => (isSeller ? propertyApi.my() : propertyApi.search({ size: 6, sort: 'createdAt,desc' })),
+        queryFn: () => (isSeller ? propertyApi.my(0, 100) : propertyApi.search({ size: 6, sort: 'createdAt,desc' })),
         enabled,
       },
       {
         queryKey: [...base, 'viewings'],
-        queryFn: () => (user?.role === 'BUYER' ? viewingApi.myBuyer() : viewingApi.mySeller()),
+        queryFn: () => (user?.role === 'BUYER' ? viewingApi.myBuyer(0, 100) : viewingApi.mySeller(0, 100)),
         enabled,
       },
       {
         queryKey: [...base, 'payments'],
-        queryFn: () => paymentApi.my(),
+        queryFn: () => paymentApi.my(0, 100),
         enabled,
       },
     ],
@@ -109,7 +109,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-semibold text-gray-900 dark:text-white">
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">
             Welcome, {user.fullName.split(' ')[0]}
           </h1>
           <p className="text-muted text-[12.5px] mt-1">{today}</p>
@@ -177,7 +177,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15}/>
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}/>
                 <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24} allowDecimals={false}/>
-                <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                 <Area type="monotone" dataKey="viewings" name="Viewings" stroke="#3B82F6" strokeWidth={2} fill="url(#viewingsFill)"/>
                 <Area type="monotone" dataKey="payments" name="Payments" stroke="#C9A227" strokeWidth={2} fill="url(#paymentsFill)"/>
               </AreaChart>
@@ -198,7 +198,7 @@ export default function DashboardPage() {
                 <BarChart data={topListings} layout="vertical" margin={{ left: 0, right: 12 }}>
                   <XAxis type="number" hide allowDecimals={false}/>
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={100}/>
-                  <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                  <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                   <Bar dataKey="views" fill="#C9A227" radius={[0, 4, 4, 0]} barSize={14}/>
                 </BarChart>
               </ResponsiveContainer>
@@ -219,7 +219,7 @@ export default function DashboardPage() {
                     <Pie data={viewingStatusBreakdown} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={3}>
                       {viewingStatusBreakdown.map(d => <Cell key={d.status} fill={VIEWING_STATUS_COLORS[d.status] || '#9CA3AF'}/>)}
                     </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }}/>
+                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}/>
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-1 text-[10.5px] text-muted">

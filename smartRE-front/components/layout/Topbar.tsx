@@ -1,30 +1,23 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Menu, Sun, Moon, LogOut, User, Settings, ChevronDown } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
 import { useUIStore, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/lib/uiStore'
-import { authApi } from '@/lib/api'
+import { useLogout } from '@/hooks/useLogout'
 import { cn, fmt } from '@/lib/utils'
-import toast from 'react-hot-toast'
 
 export default function Topbar({ onMenu, title }:{ onMenu():void; title?:string }) {
-  const { user, logout } = useAuthStore()
+  const { user } = useAuthStore()
   const collapsed = useUIStore(s => s.collapsed)
-  const router = useRouter()
   const [dark, setDark] = useState(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
   const [menu, setMenu] = useState(false)
+  const handleLogout = useLogout()
 
   const toggleTheme = () => {
     document.documentElement.classList.toggle('dark')
     localStorage.setItem('sre-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
     setDark(d => !d)
-  }
-
-  const handleLogout = async () => {
-    try { await authApi.logout() } catch {}
-    logout(); toast.success('Logged out'); router.push('/login')
   }
 
   return (

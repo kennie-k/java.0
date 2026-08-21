@@ -58,9 +58,7 @@ public class ReviewService {
                     && parts[1].equals(req.getSellerId().toString())
                     && parts[2].equals(req.getPropertyId().toString());
         } else {
-            // Redis key missing - either evicted (shared Redis instance runs allkeys-lru) or the
-            // Kafka event never landed. Fall back to asking payment-service directly rather than
-            // permanently blocking a buyer who genuinely paid.
+
             eligible = paymentServiceClient.checkEligible(req.getPaymentId(), reviewerId, req.getSellerId(), req.getPropertyId());
         }
         if (!eligible) {
@@ -91,17 +89,53 @@ public class ReviewService {
 
     @Transactional(readOnly = true)
     public Page<ReviewResponse> getByProperty(UUID propertyId, Pageable p) {
-        return repo.findByPropertyId(propertyId, p).map(this::toResponse);
+        return repo.findByPropertyIdAndIsVerifiedTrue(propertyId, p).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
     public Page<ReviewResponse> getBySeller(UUID sellerId, Pageable p) {
-        return repo.findBySellerId(sellerId, p).map(this::toResponse);
+        return repo.findBySellerIdAndIsVerifiedTrue(sellerId, p).map(this::toResponse);
+    }
+
+    public ReviewResponse adminHide(UUID reviewId, UUID adminId, String reason) {
+        Review r = repo.findById(reviewId).orElseThrow(() -> new RuntimeException("Review not found: " + reviewId));
+        r.setVerified(false);
+        r = repo.save(r);
+        evictRatingCache(r.getSellerId());
+        audit(r.getId(), "REVIEW_HIDDEN_BY_ADMIN", adminId, null,
+                "Review hidden by admin " + adminId + ". Reason: " + reason);
+        return toResponse(r);
     }
 
     @Transactional(readOnly = true)
     public Page<ReviewResponse> getByReviewer(UUID reviewerId, Pageable p) {
         return repo.findByReviewerId(reviewerId, p).map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ReviewResponse> adminGetAll(Boolean visible, Pageable p) {
+        Page<Review> page = visible == null ? repo.findAll(p) : repo.findByIsVerified(visible, p);
+        return page.map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public ReviewAdminStatsResponse getAdminStats() {
+        long visible = repo.countByIsVerifiedTrue();
+        long hidden = repo.countByIsVerifiedFalse();
+        Double avg = repo.avgRatingPlatform();
+        java.util.List<ReviewAdminStatsResponse.RatingCount> distribution = repo.ratingDistribution().stream()
+                .map(row -> ReviewAdminStatsResponse.RatingCount.builder()
+                        .rating((Integer) row[0])
+                        .count((Long) row[1])
+                        .build())
+                .toList();
+        return ReviewAdminStatsResponse.builder()
+                .totalReviews(visible + hidden)
+                .visibleReviews(visible)
+                .hiddenReviews(hidden)
+                .averageRating(avg != null ? Math.round(avg * 10.0) / 10.0 : 0.0)
+                .ratingDistribution(distribution)
+                .build();
     }
 
     @Transactional(readOnly = true)

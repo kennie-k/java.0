@@ -60,7 +60,13 @@ jwt:
 
 services:
   verification-url: ${VERIFICATION_SERVICE_URL:http://verification-service:8082}
+  user-service-url: ${USER_SERVICE_URL:http://user-service:8081}
   internal-secret: ${INTERNAL_SECRET}
+  # Allowlist for the outbound image fetch used in cross-seller duplicate-photo detection
+  # (ImageHashService) — only these hosts are followed directly; anything else is refused
+  # (SSRF guard). Must match wherever user-service actually issues public document URLs from.
+  gateway-public-url: ${PUBLIC_API_URL:http://localhost:8080}
+  s3-public-base-url: ${S3_PUBLIC_BASE_URL:https://smartre-documents.s3.amazonaws.com}
 
 gateway:
   signing-secret: ${GATEWAY_SIGNING_SECRET}
@@ -70,6 +76,9 @@ redis:
   search-cache-prefix: "property:search:"
   property-cache-prefix: "property:detail:"
   property-detail-ttl-seconds: 300
+  # Debounce window for the public GET /api/properties/{id} view-count increment: at most one
+  # increment per viewer (authenticated user id, or IP if anonymous) per property per window.
+  view-debounce-window-minutes: 30
 
 kafka:
   topics:

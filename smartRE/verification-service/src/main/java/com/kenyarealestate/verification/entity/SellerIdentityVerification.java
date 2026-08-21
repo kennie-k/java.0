@@ -45,6 +45,9 @@ public class SellerIdentityVerification {
     @Column(name = "kyc_reference")
     private String kycReference;
 
+    @Column(name = "national_id_number")
+    private String nationalIdNumber;
+
     @Column(name = "reviewed_by")
     private UUID reviewedBy;
 

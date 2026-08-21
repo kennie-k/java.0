@@ -6,8 +6,9 @@ import type { RevenueSummaryResponse, RevenueResponse, PropertyResponse, Payment
 import { usePlatformConfig } from '@/hooks/usePlatformConfig'
 import { StatCard } from '@/components/ui/Card'
 import { Card } from '@/components/ui/Card'
-import { StatusBadge } from '@/components/ui/Badge'
+import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Modal, PageLoader } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -30,6 +31,8 @@ export default function RevenuePage() {
   const [form, setForm]       = useState({ payoutMethod:'MPESA_B2C', sellerPhone:'', paybillNumber:'', tillNumber:'', accountNumber:'', bankAccountNumber:'', bankName:'', bankBranch:'', accountName:'', notes:'' })
   const [dealProperty, setDealProperty] = useState<PropertyResponse | null>(null)
   const [overrideAck, setOverrideAck] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [pendingError, setPendingError] = useState(false)
 
   const openRelease = (item: RevenueResponse) => {
     setModal(item)
@@ -62,7 +65,11 @@ export default function RevenuePage() {
 
   const loadPending = () => {
     setPendingLoading(true)
-    paymentApi.pendingRelease().then(r => setPending(r.content || [])).finally(() => setPendingLoading(false))
+    setPendingError(false)
+    paymentApi.pendingRelease()
+      .then(r => setPending(r.content || []))
+      .catch(() => setPendingError(true))
+      .finally(() => setPendingLoading(false))
   }
 
   useEffect(() => {
@@ -73,7 +80,9 @@ export default function RevenuePage() {
   useEffect(() => {
     Promise.allSettled([revenueApi.summary(), revenueApi.all()]).then(([s,i]) => {
       if (s.status==='fulfilled') setSummary(s.value)
+      else setLoadError(true)
       if (i.status==='fulfilled') setItems(i.value.content || [])
+      else setLoadError(true)
     }).finally(()=>setLoad(false))
     loadPending()
   }, [])
@@ -107,6 +116,8 @@ export default function RevenuePage() {
         <p className="text-muted text-sm mt-1">Platform earnings and escrow management</p>
       </div>
 
+      {loadError && <InlineError message="Some revenue data failed to load — figures below may be incomplete."/>}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total revenue" value={fmt.currency(summary?.totalPlatformFees||0)} icon={<DollarSign size={20}/>} color="gold"/>
         <StatCard label="This month" value={fmt.currency(summary?.thisMonthRevenue||0)} icon={<TrendingUp size={20}/>} color="emerald"/>
@@ -115,7 +126,7 @@ export default function RevenuePage() {
       </div>
 
       <Card>
-        <h2 className="font-display font-semibold mb-4">Revenue breakdown</h2>
+        <h2 className="font-display font-semibold text-[14px] mb-4">Revenue breakdown</h2>
         {chartData.every(d => d.value === 0) ? (
           <div className="h-[200px] flex flex-col items-center justify-center text-center">
             <BarChart3 size={24} className="text-gray-300 dark:text-gray-700 mb-2"/>
@@ -126,7 +137,7 @@ export default function RevenuePage() {
             <BarChart data={chartData}>
               <XAxis dataKey="name" tick={{fontSize:12}} axisLine={false} tickLine={false}/>
               <YAxis tick={{fontSize:12}} axisLine={false} tickLine={false} tickFormatter={v=>fmt.currency(v).split(' ')[1]}/>
-              <Tooltip formatter={(v:any)=>[fmt.currency(v),'Amount']} contentStyle={{borderRadius:10,border:'1px solid var(--border)',background:'var(--bg)'}}/>
+              <Tooltip formatter={(v:any)=>[fmt.currency(v),'Amount']} contentStyle={{ borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}/>
               <Bar dataKey="value" fill="#C9A227" radius={[6,6,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
@@ -136,9 +147,10 @@ export default function RevenuePage() {
       <Card id="pending-release" className="scroll-mt-20">
         <div className="flex items-center gap-1.5 mb-4">
           <Clock size={15} className="text-amber-500"/>
-          <h2 className="font-display font-semibold">Pending escrow release</h2>
-          {pending.length > 0 && <span className="badge bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">{pending.length}</span>}
+          <h2 className="font-display font-semibold text-[14px]">Pending escrow release</h2>
+          {pending.length > 0 && <Badge variant="warning">{pending.length}</Badge>}
         </div>
+        {pendingError && <InlineError message="Failed to load pending escrow releases."/>}
         {pendingLoading ? (
           <div className="space-y-2">{[0,1].map(i => <div key={i} className="skeleton h-16 rounded-lg"/>)}</div>
         ) : pending.length === 0 ? (
@@ -163,7 +175,7 @@ export default function RevenuePage() {
       </Card>
 
       <Card id="ledger" className="scroll-mt-20">
-        <h2 className="font-display font-semibold mb-4">Transactions</h2>
+        <h2 className="font-display font-semibold text-[14px] mb-4">Transactions</h2>
         {items.length===0 ? (
           <p className="text-muted text-sm text-center py-8">No revenue transactions yet</p>
         ) : (
@@ -174,6 +186,11 @@ export default function RevenuePage() {
                   <div className="flex items-center gap-2 mb-0.5">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.revenueType.replace(/_/g,' ')}</p>
                     <StatusBadge status={item.status} size="sm"/>
+                    {item.status === 'PAYOUT_INITIATED' && Date.now() - new Date(item.createdAt).getTime() > 10 * 60 * 1000 && (
+                      <Badge variant="error" size="sm">
+                        <ShieldAlert size={10}/>Stuck — verify with Safaricom before retrying
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted">Gross: {fmt.currency(item.grossAmount)} · Fee: {fmt.currency(item.platformFee)} · {fmt.date(item.createdAt)}</p>
                 </div>

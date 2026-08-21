@@ -19,12 +19,13 @@ import Textarea from '@/components/ui/Textarea'
 import FileUpload from '@/components/ui/FileUpload'
 import PropertyLocationPicker from '@/components/property/PropertyLocationPicker'
 import { COUNTY_OPTIONS } from '@/lib/counties'
+import { subCountyOptions } from '@/lib/subCounties'
 import toast from 'react-hot-toast'
 
 const schema = z.object({
   title:        z.string().min(5,'Title must be at least 5 characters'),
   description:  z.string().optional(),
-  propertyType: z.enum(['HOUSE','APARTMENT','LAND','COMMERCIAL','VILLA']),
+  propertyType: z.enum(['HOUSE','APARTMENT','LAND','COMMERCIAL','TOWNHOUSE','STUDIO','VILLA']),
   listingType:  z.enum(['SALE','RENT']),
   county:       z.string().min(2,'County required'),
   subCounty:    z.string().optional(),
@@ -40,9 +41,10 @@ type Form = z.infer<typeof schema>
 export default function NewPropertyPage() {
   const router = useRouter()
   const { ready } = useAuthGuard(SELLER_ROLES, '/dashboard')
-  const { register, handleSubmit, formState:{ errors, isSubmitting } } = useForm<Form>({
+  const { register, handleSubmit, watch, setValue, formState:{ errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema), defaultValues:{ propertyType:'HOUSE', listingType:'SALE' }
   })
+  const selectedCounty = watch('county')
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const [coords, setCoords] = useState<{ lat?: number; lng?: number }>({})
 
@@ -54,6 +56,7 @@ export default function NewPropertyPage() {
   const identityApproved = verif?.status === 'APPROVED' && !verif.expired
 
   const onSubmit = async (d: Form) => {
+    if (imageUrls.length === 0) { toast.error('Add at least one photo before listing'); return }
     try {
       const p = await propertyApi.create({ ...d, imageUrls, latitude: coords.lat, longitude: coords.lng })
       toast.success('Property listed successfully!')
@@ -95,14 +98,15 @@ export default function NewPropertyPage() {
       )}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <Card>
-          <h2 className="font-display font-semibold mb-4">Basic details</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4">Basic details</h2>
           <div className="space-y-4">
             <Input label="Property title" placeholder="e.g. 3 Bedroom House in Westlands" required {...register('title')} error={errors.title?.message}/>
             <Textarea label="Description" placeholder="Describe the property in detail..." {...register('description')}/>
             <div className="grid grid-cols-2 gap-4">
               <Select label="Property type" required options={[
                 {value:'HOUSE',label:'House'},{value:'APARTMENT',label:'Apartment'},
-                {value:'LAND',label:'Land'},{value:'COMMERCIAL',label:'Commercial'},{value:'VILLA',label:'Villa'},
+                {value:'LAND',label:'Land'},{value:'COMMERCIAL',label:'Commercial'},
+                {value:'TOWNHOUSE',label:'Townhouse'},{value:'STUDIO',label:'Studio'},{value:'VILLA',label:'Villa'},
               ]} {...register('propertyType')} error={errors.propertyType?.message}/>
               <Select label="Listing type" required options={[
                 {value:'SALE',label:'For Sale'},{value:'RENT',label:'For Rent'},
@@ -112,7 +116,7 @@ export default function NewPropertyPage() {
         </Card>
 
         <Card>
-          <h2 className="font-display font-semibold mb-4 flex items-center gap-2"><ImageIcon size={17} className="text-gold-500"/>Photos</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4 flex items-center gap-2"><ImageIcon size={17} className="text-gold-500"/>Photos</h2>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-3">
             {imageUrls.map((url, i) => (
               <div key={url} className="relative aspect-square rounded-lg overflow-hidden group">
@@ -129,11 +133,14 @@ export default function NewPropertyPage() {
         </Card>
 
         <Card>
-          <h2 className="font-display font-semibold mb-4">Location</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4">Location</h2>
           <div className="space-y-4">
-            <Select label="County" required options={COUNTY_OPTIONS} {...register('county')} error={errors.county?.message}/>
+            <Select label="County" required options={COUNTY_OPTIONS}
+              {...register('county', { onChange: () => setValue('subCounty', '') })}
+              error={errors.county?.message}/>
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Sub-county" placeholder="e.g. Westlands" {...register('subCounty')}/>
+              <Select label="Sub-county" options={subCountyOptions(selectedCounty)} disabled={!selectedCounty}
+                {...register('subCounty')}/>
               <Input label="City / Area" placeholder="e.g. Westlands" {...register('city')}/>
             </div>
             <div>
@@ -144,7 +151,7 @@ export default function NewPropertyPage() {
         </Card>
 
         <Card>
-          <h2 className="font-display font-semibold mb-4">Pricing & details</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4">Pricing & details</h2>
           <div className="space-y-4">
             <Input label="Price (KES)" type="number" placeholder="15000000" required {...register('price')} error={errors.price?.message}/>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

@@ -55,18 +55,23 @@ public class UserController {
         return ResponseEntity.ok(svc.getAll(PageRequest.of(page, size, Sort.by(dir, sort))));
     }
 
+    @GetMapping("/admin/stats")
+    public ResponseEntity<com.kenyarealestate.user.dto.UserAdminStatsResponse> adminStats() {
+        return ResponseEntity.ok(svc.getAdminStats());
+    }
+
     @PutMapping("/admin/{id}/promote")
-    public ResponseEntity<UserResponse> promoteToAdmin(@PathVariable UUID id) {
-        return ResponseEntity.ok(svc.promoteToAdmin(id));
+    public ResponseEntity<UserResponse> promoteToAdmin(@PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(svc.promoteToAdmin(id, auth.getName()));
     }
 
     @PutMapping("/admin/{id}/ban")
-    public ResponseEntity<UserResponse> ban(@PathVariable UUID id) {
-        return ResponseEntity.ok(svc.ban(id));
+    public ResponseEntity<UserResponse> ban(@PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(svc.ban(id, auth.getName()));
     }
 
     @PutMapping("/admin/{id}/unban")
-    public ResponseEntity<UserResponse> unban(@PathVariable UUID id) {
-        return ResponseEntity.ok(svc.unban(id));
+    public ResponseEntity<UserResponse> unban(@PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(svc.unban(id, auth.getName()));
     }
 }

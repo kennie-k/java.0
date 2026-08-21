@@ -2,7 +2,7 @@
 import { cn, statusVariant, statusLabel } from '@/lib/utils'
 import { ShieldCheck, ShieldX, Shield, ShieldAlert, Star } from 'lucide-react'
 
-type Variant = 'success'|'warning'|'error'|'info'|'muted'|'gold'
+type Variant = 'success'|'warning'|'error'|'info'|'muted'|'gold'|'purple'
 
 const styles: Record<Variant,string> = {
   success:'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400',
@@ -11,6 +11,7 @@ const styles: Record<Variant,string> = {
   info:   'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400',
   muted:  'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
   gold: 'bg-gold-50 text-gold-600 dark:bg-gold-500/10 dark:text-gold-400',
+  purple: 'bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-400',
 }
 
 export function Badge({ variant='muted', children, dot, size='md', className }:

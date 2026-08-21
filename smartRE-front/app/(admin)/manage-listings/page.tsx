@@ -13,7 +13,8 @@ import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { ConfirmModal, EmptyState, PageLoader } from '@/components/ui/Modal'
 import { InlineError } from '@/components/ui/InlineError'
-import { StatusBadge } from '@/components/ui/Badge'
+import { Pagination } from '@/components/ui/Pagination'
+import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { fmt } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -25,6 +26,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 ]
 
 const VALID_STATUSES = STATUS_OPTIONS.map(o => o.value)
+const PAGE_SIZE = 20
 
 export default function AdminListingsPage() {
   return <Suspense fallback={<PageLoader/>}><AdminListingsPageInner/></Suspense>
@@ -42,13 +44,19 @@ function AdminListingsPageInner() {
   }, [statusParam])
   const [search, setSearch] = useState('')
   const [target, setTarget] = useState<PropertyResponse | null>(null)
+  const [page, setPage] = useState(0)
+  useEffect(() => { setPage(0) }, [status])
 
-  const queryKey = queryKeys.listingsAdmin(status || 'ALL')
+  const invalidationKey = queryKeys.listingsAdmin(status || 'ALL')
+  const queryKey = queryKeys.listingsAdminPage(status || 'ALL', page, PAGE_SIZE)
   const { data, isLoading: loading, error } = useQuery({
     queryKey,
-    queryFn: () => propertyApi.adminAll(status ? { status } : undefined),
+    queryFn: () => propertyApi.adminAll({ ...(status ? { status } : {}), page, size: PAGE_SIZE }),
+    refetchInterval: 15_000,
   })
   const items = data?.content ?? []
+  const totalPages = data?.totalPages ?? 1
+  const totalElements = data?.totalElements ?? 0
   const filtered = items.filter(p =>
     !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.county.toLowerCase().includes(search.toLowerCase())
   )
@@ -81,7 +89,7 @@ function AdminListingsPageInner() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">Listings</h1>
-          <p className="text-muted text-[13px] mt-1">{items.length} listing{items.length !== 1 ? 's' : ''}</p>
+          <p className="text-muted text-[13px] mt-1">{items.length} on this page · {totalElements} total</p>
         </div>
         <div className="w-56">
           <Select label="Status" options={STATUS_OPTIONS} value={status} onChange={e => setStatus(e.target.value as ListingStatus)}/>
@@ -91,7 +99,12 @@ function AdminListingsPageInner() {
       {error && <InlineError message="Failed to load listings."/>}
 
       {items.length > 0 && (
-        <Input leftIcon={<Search size={15}/>} placeholder="Search by title or county..." value={search} onChange={e => setSearch(e.target.value)}/>
+        <div>
+          <Input leftIcon={<Search size={15}/>} placeholder="Search by title or county..." value={search} onChange={e => setSearch(e.target.value)}/>
+          {search && (
+            <p className="text-[11px] text-muted mt-1.5">Search only applies to the current page — use Previous/Next to browse the rest of {totalElements} listings.</p>
+          )}
+        </div>
       )}
 
       {items.length === 0 ? (
@@ -111,9 +124,9 @@ function AdminListingsPageInner() {
                     <p className="font-semibold text-gray-900 dark:text-white text-[13px]">{p.title}</p>
                     <StatusBadge status={p.status} size="sm"/>
                     {p.duplicateParcelFlag && (
-                      <span className="badge bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 text-[10px]">
+                      <Badge variant="error" size="sm">
                         <AlertTriangle size={10}/>Duplicate parcel
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <p className="text-[12px] text-muted">
@@ -134,6 +147,8 @@ function AdminListingsPageInner() {
           ))}
         </div>
       )}
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage}/>
 
       <ConfirmModal open={!!target} onClose={() => setTarget(null)} onConfirm={confirmAction} loading={toggleMutation.isPending}
         danger={target?.status !== 'SUSPENDED'} label={target?.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}

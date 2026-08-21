@@ -52,17 +52,25 @@ logging:
     com.kenyarealestate: DEBUG
 
 mpesa:
+  # local dev has no fixed public IP to allowlist (ngrok tunnel egress varies); the
+  # 'local' profile already permits insecure mode in CallbackIpPolicy, this is just
+  # explicit for clarity. Never set true outside local development.
+  callback-insecure-allow-all-ips: true
   consumer-key: 7Cj5Gby2lmbCa4WKnXKJAQrDAAHyYN55VxLez9jzPc3I6a6p
   consumer-secret: RA7mBAr0r2M0EGa8f8CmLE48RjmSE9DKBQXfAHgBWngxuTkw0A5MdBAiq9Hl04x4
   shortcode: "174379"
   passkey: bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
   auth-url: https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials
   stk-push-url: https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest
+  stk-query-url: https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query
   callback-url: ${MPESA_CALLBACK_URL:https://your-domain.com/api/payments/mpesa/callback}
   b2c-url: https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest
   b2c-callback-url: ${MPESA_B2C_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/callback}
+  b2c-status-query-url: https://sandbox.safaricom.co.ke/mpesa/transactionstatus/v1/query
+  b2c-status-callback-url: ${MPESA_B2C_STATUS_CALLBACK_URL:https://your-domain.com/api/revenue/mpesa/b2c/status-callback}
   initiator-name: testapi
   initiator-credential: Safaricom999!
+  security-credential-cert-path: ${MPESA_SECURITY_CREDENTIAL_CERT_PATH:file:/nonexistent-configure-mpesa-cert}
 
 platform:
   viewing-fee-kes: 200

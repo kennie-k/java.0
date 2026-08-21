@@ -37,6 +37,12 @@ public class SellerIdentityController {
         return ResponseEntity.ok(service.uploadDocument(resolveUserId(httpReq), req));
     }
 
+    @DeleteMapping("/documents/{documentId}")
+    public ResponseEntity<IdentityVerificationResponse> deleteDocument(
+            HttpServletRequest httpReq, @PathVariable UUID documentId) {
+        return ResponseEntity.ok(service.deleteDocument(resolveUserId(httpReq), documentId));
+    }
+
     @PostMapping("/submit")
     public ResponseEntity<IdentityVerificationResponse> submit(HttpServletRequest httpReq) {
         return ResponseEntity.ok(service.submitForReview(resolveUserId(httpReq)));
@@ -51,6 +57,11 @@ public class SellerIdentityController {
     public ResponseEntity<IdentityVerificationResponse> aiScreening(
             @PathVariable UUID verificationId, @RequestBody AiScreeningRequest req) {
         return ResponseEntity.ok(service.processAiScreening(verificationId, req));
+    }
+
+    @GetMapping("/admin/fraud-summary")
+    public ResponseEntity<FraudSummaryResponse> fraudSummary() {
+        return ResponseEntity.ok(service.getFraudSummary());
     }
 
     @GetMapping("/admin/queue")

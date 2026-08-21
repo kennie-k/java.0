@@ -6,19 +6,25 @@ import { paymentApi } from '@/lib/api'
 import type { PaymentResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
-import { StatusBadge } from '@/components/ui/Badge'
+import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { EmptyState, PageLoader } from '@/components/ui/Modal'
+import { InlineError } from '@/components/ui/InlineError'
 import { fmt } from '@/lib/utils'
 
 export default function PaymentsPage() {
   const [items, setItems] = useState<PaymentResponse[]>([])
+  const [summary, setSummary] = useState<{ totalPaid: number; completedCount: number; pendingCount: number } | null>(null)
   const [loading, setLoad] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [page, setPage] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
-    paymentApi.my(0).then(r => { setItems(r.content || []); setTotalPages(r.totalPages || 1) }).finally(() => setLoad(false))
+    Promise.all([paymentApi.my(0), paymentApi.mySummary()])
+      .then(([r, s]) => { setItems(r.content || []); setTotalPages(r.totalPages || 1); setSummary(s) })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoad(false))
   }, [])
 
   const loadMore = () => {
@@ -33,8 +39,6 @@ export default function PaymentsPage() {
 
   if (loading) return <PageLoader/>
 
-  const total = items.filter(p=>p.status==='COMPLETED').reduce((s,p)=>s+p.amount,0)
-
   return (
     <div className="space-y-6">
       <div>
@@ -42,10 +46,12 @@ export default function PaymentsPage() {
         <p className="text-muted text-sm mt-1">Your M-Pesa payment history</p>
       </div>
 
+      {loadError && <InlineError message="Failed to load your payment history."/>}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card><p className="text-sm text-muted mb-1">Total paid</p><p className="font-display text-lg font-semibold text-gray-900 dark:text-white">{fmt.currency(total)}</p></Card>
-        <Card><p className="text-sm text-muted mb-1">Completed</p><p className="font-display text-lg font-semibold text-emerald-600">{items.filter(p=>p.status==='COMPLETED').length}</p></Card>
-        <Card><p className="text-sm text-muted mb-1">Pending</p><p className="font-display text-lg font-semibold text-amber-600">{items.filter(p=>['PENDING','STK_PUSHED'].includes(p.status)).length}</p></Card>
+        <Card><p className="text-sm text-muted mb-1">Total paid</p><p className="font-display text-lg font-semibold text-gray-900 dark:text-white">{fmt.currency(summary?.totalPaid || 0)}</p></Card>
+        <Card><p className="text-sm text-muted mb-1">Completed</p><p className="font-display text-lg font-semibold text-emerald-600">{summary?.completedCount ?? 0}</p></Card>
+        <Card><p className="text-sm text-muted mb-1">Pending</p><p className="font-display text-lg font-semibold text-amber-600">{summary?.pendingCount ?? 0}</p></Card>
       </div>
 
       {items.length===0 ? (
@@ -66,7 +72,7 @@ export default function PaymentsPage() {
                   <div className="flex items-center gap-2 mb-0.5">
                     <p className="font-semibold text-sm text-gray-900 dark:text-white">{p.paymentType.replace(/_/g,' ')}</p>
                     <StatusBadge status={p.status} size="sm"/>
-                    {p.escrowReleased && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-xs">Escrow released</span>}
+                    {p.escrowReleased && <Badge variant="success" size="sm">Escrow released</Badge>}
                   </div>
                   <p className="text-xs text-muted">Phone: {fmt.phone(p.phoneNumber)} · {fmt.datetime(p.createdAt)}</p>
                   {p.mpesaReceiptNumber && <p className="text-xs text-muted">M-Pesa receipt: <strong>{p.mpesaReceiptNumber}</strong></p>}

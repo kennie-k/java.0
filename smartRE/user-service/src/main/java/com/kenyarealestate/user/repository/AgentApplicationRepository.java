@@ -15,4 +15,5 @@ public interface AgentApplicationRepository extends JpaRepository<AgentApplicati
     Optional<AgentApplication> findByUserId(UUID userId);
     boolean existsByUserId(UUID userId);
     Page<AgentApplication> findByStatus(AgentApplicationStatus status, Pageable pageable);
+    boolean existsByBusinessDocHashAndUserIdNot(String businessDocHash, UUID userId);
 }

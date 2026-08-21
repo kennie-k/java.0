@@ -53,7 +53,10 @@ logging:
 
 services:
   verification-url: http://localhost:8082
+  user-service-url: http://localhost:8081
   internal-secret: smartre-internal-secret-2026
+  gateway-public-url: http://localhost:8080
+  s3-public-base-url: https://smartre-documents.s3.amazonaws.com
 
 redis:
   search-cache-ttl-seconds: 120

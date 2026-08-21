@@ -2,10 +2,11 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, RotateCcw, Home } from 'lucide-react'
+import { reportError } from '@/lib/errorLogger'
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
-    console.error(error)
+    reportError(error, 'react-error-boundary', { boundary: 'root' })
   }, [error])
 
   const isDev = process.env.NODE_ENV === 'development'

@@ -1,16 +1,17 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { User, Mail, Phone, Shield, ShieldCheck, Save, Landmark, Building2, Lock } from 'lucide-react'
-import { userApi, authApi } from '@/lib/api'
+import { userApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
+import { useLogout } from '@/hooks/useLogout'
 import { isSellerOrAgent } from '@/lib/roles'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import FileUpload from '@/components/ui/FileUpload'
 import { Modal } from '@/components/ui/Modal'
+import { Badge } from '@/components/ui/Badge'
 import { fmt } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -22,8 +23,8 @@ const payoutMethods = [
 ]
 
 export default function ProfilePage() {
-  const { user, setUser, logout } = useAuthStore()
-  const router = useRouter()
+  const { user, setUser } = useAuthStore()
+  const handleLogout = useLogout()
   const [form, setForm] = useState({ fullName: '', phone: '', profileImage: '' })
   const [payout, setPayout] = useState({
     accountType: 'INDIVIDUAL', companyName: '', companyRegNumber: '', kraPin: '',
@@ -82,11 +83,6 @@ export default function ProfilePage() {
     finally { setChangingPw(false) }
   }
 
-  const handleLogout = async () => {
-    try { await authApi.logout() } catch {}
-    logout(); router.push('/login')
-  }
-
   if (!user) return null
 
   return (
@@ -106,8 +102,8 @@ export default function ProfilePage() {
             <h2 className="font-display text-base font-semibold text-gray-900 dark:text-white truncate">{user.fullName}</h2>
             <p className="text-muted text-[12px] truncate">{user.email}</p>
             <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="badge bg-gold-50 text-gold-600 dark:bg-gold-500/10 dark:text-gold-400">{user.role}</span>
-              {user.verified && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"><ShieldCheck size={10}/>Verified</span>}
+              <Badge variant="gold">{user.role}</Badge>
+              {user.verified && <Badge variant="success"><ShieldCheck size={10}/>Verified</Badge>}
             </div>
           </div>
         </div>
@@ -189,8 +185,8 @@ export default function ProfilePage() {
           <Button variant="secondary" size="sm" leftIcon={<Lock size={12}/>} onClick={() => setPwModal(true)}>Change</Button>
         </div>
         <div className="flex items-center justify-between py-2.5">
-          <div><p className="font-medium text-[12px] text-red-600 dark:text-red-400">Sign out</p><p className="text-[11px] text-muted">Log out of your account</p></div>
-          <Button variant="danger" size="sm" onClick={handleLogout}>Sign out</Button>
+          <div><p className="font-medium text-[12px]">Sign out</p><p className="text-[11px] text-muted">Log out of your account</p></div>
+          <Button variant="secondary" size="sm" onClick={handleLogout}>Sign out</Button>
         </div>
       </Card>
 

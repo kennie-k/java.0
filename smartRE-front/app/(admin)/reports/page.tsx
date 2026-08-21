@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Flag, CheckCircle, XCircle, ExternalLink, Search, Building2 } from 'lucide-react'
-import { reportApi, propertyApi, userApi } from '@/lib/api'
+import { reportApi, propertyApi, userApi, reviewApi } from '@/lib/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
 import type { ReportResponse, ReportStatus } from '@/types'
@@ -42,12 +42,13 @@ function ReportsQueuePageInner() {
   }, [statusParam])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<ReportResponse | null>(null)
-  const [form, setForm] = useState({ decision: 'RESOLVED', notes: '', takeAction: false })
+  const [form, setForm] = useState({ decision: 'RESOLVED', notes: '', takeAction: true })
 
   const REPORTS_KEY = queryKeys.reports(status)
   const { data, isLoading: loading, error } = useQuery({
     queryKey: REPORTS_KEY,
     queryFn: () => reportApi.adminQueue(status),
+    refetchInterval: 15_000,
   })
   const queue = data?.content ?? []
   const filtered = queue.filter(r =>
@@ -77,10 +78,11 @@ function ReportsQueuePageInner() {
       if (form.decision === 'RESOLVED' && form.takeAction) {
         if (modal.targetType === 'LISTING') await propertyApi.adminSuspend(modal.targetId)
         else if (modal.targetType === 'USER') await userApi.ban(modal.targetId)
+        else if (modal.targetType === 'REVIEW') await reviewApi.adminHide(modal.targetId, form.notes || undefined)
       }
       await resolveMutation.mutateAsync({ id: modal.id, form })
       toast.success(form.takeAction
-        ? `Report resolved — ${modal.targetType === 'LISTING' ? 'listing suspended' : 'user banned'}`
+        ? `Report resolved — ${modal.targetType === 'LISTING' ? 'listing suspended' : modal.targetType === 'USER' ? 'user banned' : 'review hidden'}`
         : `Report ${form.decision.toLowerCase()}`)
       setModal(null)
     } catch (e: any) { toast.error(e.response?.data?.error || 'Failed to resolve report') }
@@ -140,7 +142,7 @@ function ReportsQueuePageInner() {
                       </a>
                     )}
                   </div>
-                  <Button size="sm" onClick={() => { setModal(item); setForm({ decision: 'RESOLVED', notes: '', takeAction: false }) }}>Resolve</Button>
+                  <Button size="sm" onClick={() => { setModal(item); setForm({ decision: 'RESOLVED', notes: '', takeAction: true }) }}>Resolve</Button>
                 </div>
               </Card>
             )
@@ -189,14 +191,16 @@ function ReportsQueuePageInner() {
             <Select label="Decision" required options={[{ value: 'RESOLVED', label: 'Resolved (action taken)' }, { value: 'DISMISSED', label: 'Dismiss (no action needed)' }]}
               value={form.decision} onChange={e => setForm(f => ({ ...f, decision: e.target.value }))}/>
 
-            {form.decision === 'RESOLVED' && (modal.targetType === 'LISTING' || modal.targetType === 'USER') && (
+            {form.decision === 'RESOLVED' && (
               <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-base cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2E2518]">
                 <input type="checkbox" className="mt-0.5" checked={form.takeAction}
                   onChange={e => setForm(f => ({ ...f, takeAction: e.target.checked }))}/>
                 <span className="text-[12px] text-gray-700 dark:text-gray-300">
                   {modal.targetType === 'LISTING'
                     ? 'Also suspend this listing immediately — it will disappear from search until reactivated.'
-                    : 'Also ban this user immediately — they will be unable to log in until unbanned.'}
+                    : modal.targetType === 'USER'
+                    ? 'Also ban this user immediately — they will be unable to log in until unbanned.'
+                    : 'Also hide this review immediately — it will disappear from public listings and stop counting toward the seller\'s rating.'}
                 </span>
               </label>
             )}

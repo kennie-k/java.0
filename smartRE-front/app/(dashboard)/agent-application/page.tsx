@@ -103,7 +103,7 @@ export default function AgentApplicationPage() {
 
       {(!application || application.status === 'REJECTED') && (
         <Card>
-          <h2 className="font-display font-semibold mb-4 flex items-center gap-2"><Briefcase size={17} className="text-gold-500"/>Apply as an agent</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4 flex items-center gap-2"><Briefcase size={17} className="text-gold-500"/>Apply as an agent</h2>
           <div className="space-y-4">
             <Input label="Business or agency name (optional)" placeholder="e.g. Acme Realty Ltd" value={businessName} onChange={e => setBusinessName(e.target.value)}/>
             <div>

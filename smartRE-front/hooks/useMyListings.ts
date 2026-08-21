@@ -5,7 +5,7 @@ import { queryKeys } from '@/lib/queryKeys'
 
 export function useMyListings() {
   const {
-    data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
+    data, isLoading, isError, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
   } = useInfiniteQuery({
     queryKey: queryKeys.myListings,
     queryFn: ({ pageParam }) => propertyApi.my(pageParam),
@@ -21,6 +21,7 @@ export function useMyListings() {
   return {
     items,
     loading: isLoading,
+    error: isError,
     loadingMore: isFetchingNextPage,
     hasMore: !!hasNextPage,
     loadMore: fetchNextPage,

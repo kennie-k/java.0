@@ -54,6 +54,7 @@ logging:
 services:
   property-url: http://localhost:8083
   internal-secret: smartre-internal-secret-2026
+  document-url-allowed-hosts: localhost,user-service
   document-analysis-enabled: false
   document-analysis-url: https://api.yourdocumentai.com
   document-analysis-key: placeholder

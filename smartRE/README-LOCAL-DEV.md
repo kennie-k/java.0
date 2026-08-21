@@ -7,15 +7,20 @@ Two modes. Same codebase. No code changes between them.
 ## MODE 1 — Run in IntelliJ (individual services)
 
 ### Prerequisites running locally
-- PostgreSQL 18 on localhost:5432 with password `bantu007#`
+- PostgreSQL 18 on localhost:5432 with the password set as `DB_PASSWORD` in your `.env` file
 - Redis on localhost:6379
 - Kafka on localhost:29092
 
-Start infrastructure only (no Java services):
+Copy `.env.example` to `.env` and set `DB_PASSWORD` before starting infra — it's required
+(no hardcoded default) and shared by all six local Postgres containers below:
 
 ```bash
+cp .env.example .env   # then edit DB_PASSWORD (and any other values you need)
 docker-compose -f docker-compose-infra.yml up -d
 ```
+
+Note: `docker-compose-infra.yml` binds Postgres/Redis/Kafka ports to `127.0.0.1` only —
+they are not reachable from outside the machine, matching the posture of `docker-compose.yml`.
 
 ### Run a service in IntelliJ
 
@@ -38,7 +43,7 @@ The `local` profile activates `application-local.yaml` which points to localhost
 | payment-service      | 8085 | payment_db      |
 | review-service       | 8086 | review_db       |
 
-All databases on localhost:5432. Password: bantu007#
+All databases on localhost:5432. Password: value of `DB_PASSWORD` in your `.env` file.
 
 ### Start order (to avoid startup errors)
 1. user-service
@@ -110,6 +115,34 @@ Update .env with the ngrok URL:
 MPESA_CALLBACK_URL=https://YOUR-ID.ngrok-free.app/api/payments/mpesa/callback
 MPESA_B2C_CALLBACK_URL=https://YOUR-ID.ngrok-free.app/api/revenue/mpesa/b2c/callback
 ```
+
+---
+
+## Backup & restore (Postgres volumes)
+
+There is no automated backup pipeline yet (out of scope for this pass) — this is a manual
+procedure to use before risky operations (`docker-compose down -v`, migrations, upgrades)
+until a real scheduled backup job exists.
+
+**Back up all six databases** with the helper script (works against either `docker-compose.yml`
+or `docker-compose-infra.yml` — it detects whichever DB containers are running):
+
+```bash
+./scripts/backup-db.sh            # writes timestamped .sql.gz dumps to ./backups/
+```
+
+**Restore a single database from a dump:**
+
+```bash
+gunzip -c backups/user_db_YYYYMMDD-HHMMSS.sql.gz | \
+  docker exec -i smartre-user-db-1 psql -U postgres -d user_db
+```
+
+(Container names follow `<project-dir>-<service>-1`; run `docker ps` to confirm the exact name.)
+
+A real runbook (automated nightly dumps + off-host retention + a tested restore drill) belongs
+in ops/infra tooling once this moves past local dev / a single docker-compose host — tracked as
+follow-up, not covered here.
 
 ---
 

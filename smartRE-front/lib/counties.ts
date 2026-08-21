@@ -1,5 +1,4 @@
-// Kenya's 47 counties are a fixed set defined by the constitution — no external API needed,
-// this list doesn't change.
+
 export const KENYA_COUNTIES = [
   'Baringo', 'Bomet', 'Bungoma', 'Busia', 'Elgeyo-Marakwet', 'Embu', 'Garissa', 'Homa Bay',
   'Isiolo', 'Kajiado', 'Kakamega', 'Kericho', 'Kiambu', 'Kilifi', 'Kirinyaga', 'Kisii', 'Kisumu',

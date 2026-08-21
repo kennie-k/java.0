@@ -3,6 +3,10 @@ package com.kenyarealestate.property.service;
 import com.kenyarealestate.property.client.VerificationClient;
 import com.kenyarealestate.property.dto.*;
 import com.kenyarealestate.property.entity.*;
+import com.kenyarealestate.property.exception.ConflictException;
+import com.kenyarealestate.property.exception.ForbiddenException;
+import com.kenyarealestate.property.exception.NotFoundException;
+import com.kenyarealestate.property.repository.PropertyImageHashRepository;
 import com.kenyarealestate.property.repository.PropertyRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
@@ -23,9 +28,12 @@ public class PropertyService {
     private final VerificationClient verifClient;
     private final RedisTemplate<String, Object> redis;
     private final PropertyAuditService auditService;
+    private final PropertyImageHashRepository imageHashRepo;
+    private final ImageHashService imageHashService;
 
     private static final String CACHE_DETAIL_PREFIX = "property:detail:";
     private static final String CACHE_SEARCH_PREFIX = "property:search:";
+    private static final String VIEW_DEBOUNCE_PREFIX = "property:viewed:";
 
     @Value("${redis.property-detail-ttl-seconds:300}")
     private long detailTtl;
@@ -33,14 +41,21 @@ public class PropertyService {
     @Value("${redis.property-search-ttl-seconds:120}")
     private long searchTtl;
 
+    @Value("${redis.view-debounce-window-minutes:30}")
+    private long viewDebounceWindowMinutes;
+
     public PropertyService(PropertyRepository repo,
                            VerificationClient verifClient,
                            RedisTemplate<String, Object> redis,
-                           PropertyAuditService auditService) {
+                           PropertyAuditService auditService,
+                           PropertyImageHashRepository imageHashRepo,
+                           ImageHashService imageHashService) {
         this.repo = repo;
         this.verifClient = verifClient;
         this.redis = redis;
         this.auditService = auditService;
+        this.imageHashRepo = imageHashRepo;
+        this.imageHashService = imageHashService;
     }
 
     public PropertyResponse create(UUID sellerId, CreatePropertyRequest req) {
@@ -68,6 +83,8 @@ public class PropertyService {
                 .status(identityVerified ? ListingStatus.PENDING_VERIFICATION : ListingStatus.DRAFT)
                 .build());
 
+        syncImageHashes(sellerId, p.getId(), p.getImageUrls());
+
         auditService.log(p.getId(), "PROPERTY_CREATED", null, p.getStatus().name(),
                 sellerId, "SELLER", null,
                 "identityVerified=" + identityVerified + " type=" + req.getPropertyType());
@@ -93,7 +110,10 @@ public class PropertyService {
         if (req.getBathrooms() != null) p.setBathrooms(req.getBathrooms());
         if (req.getAreaSqm() != null) p.setAreaSqm(req.getAreaSqm());
         if (req.getYearBuilt() != null) p.setYearBuilt(req.getYearBuilt());
-        if (req.getImageUrls() != null) p.setImageUrls(req.getImageUrls());
+        if (req.getImageUrls() != null) {
+            p.setImageUrls(req.getImageUrls());
+            syncImageHashes(sellerId, id, req.getImageUrls());
+        }
 
         Property saved = repo.save(p);
         auditService.log(id, "PROPERTY_UPDATED", prevStatus, saved.getStatus().name(),
@@ -108,41 +128,95 @@ public class PropertyService {
         Property p = findByIdAndSeller(id, sellerId);
         String prevStatus = p.getStatus().name();
         repo.delete(p);
+        imageHashRepo.deleteByPropertyId(id);
         auditService.log(id, "PROPERTY_DELETED", prevStatus, "DELETED",
                 sellerId, "SELLER", null, "Property deleted by seller");
         evictDetailCache(id);
         evictSearchCache();
     }
 
+    // Cross-seller image reuse is a strong fraud signal (stolen photos, or the same bad actor
+    // running multiple fake listings) — the same seller reusing their own photos across a
+    // re-listing is legitimate and explicitly excluded. Re-syncs the full hash set on every
+    // create/update so it never drifts from the property's current imageUrls.
+    private void syncImageHashes(UUID sellerId, UUID propertyId, List<String> imageUrls) {
+        if (imageUrls == null || imageUrls.isEmpty()) return;
+        List<PropertyImageHash> toSave = new ArrayList<>();
+        for (String url : imageUrls) {
+            Optional<String> hashOpt = imageHashService.computeSha256(url);
+            if (hashOpt.isEmpty()) continue;
+            String hash = hashOpt.get();
+            imageHashRepo.findFirstByImageHashAndSellerIdNot(hash, sellerId).ifPresent(existing -> {
+                log.warn("ALERT: sellerId={} attempted to use a photo already used by sellerId={} on propertyId={}",
+                        sellerId, existing.getSellerId(), existing.getPropertyId());
+                // Runs in its own REQUIRES_NEW transaction (see PropertyAuditService), so the
+                // fraud attempt is recorded permanently even though we're about to roll back
+                // this create/update by throwing.
+                auditService.log(propertyId, "DUPLICATE_PHOTO_FRAUD_DETECTED", null, null,
+                        sellerId, "SELLER", null,
+                        "Attempted to reuse a photo already used by sellerId=" + existing.getSellerId()
+                                + " on propertyId=" + existing.getPropertyId());
+                throw new ConflictException(
+                        "One of these photos has already been used on another seller's listing. Please upload your own original photos.");
+            });
+            toSave.add(PropertyImageHash.builder()
+                    .propertyId(propertyId).sellerId(sellerId).imageUrl(url).imageHash(hash).build());
+        }
+        imageHashRepo.deleteByPropertyId(propertyId);
+        imageHashRepo.saveAll(toSave);
+    }
+
     @Transactional(readOnly = true)
-    public PropertyResponse getById(UUID id, UUID callerId, boolean isAdmin) {
+    public PropertyResponse getById(UUID id, UUID callerId, boolean isAdmin, String viewerIp) {
         String key = CACHE_DETAIL_PREFIX + id;
         try {
             Object cached = redis.opsForValue().get(key);
             if (cached instanceof PropertyResponse r) {
                 if (!"ACTIVE".equals(r.getStatus()) && !isAdmin
                         && (callerId == null || !callerId.equals(r.getSellerId()))) {
-                    throw new RuntimeException("Property not found");
+                    throw new NotFoundException("Property not found");
                 }
                 return r;
             }
+        } catch (NotFoundException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Detail cache read error: {}", e.getMessage());
         }
-        Property p = repo.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
+        Property p = repo.findById(id).orElseThrow(() -> new NotFoundException("Property not found"));
         if (p.getStatus() != ListingStatus.ACTIVE && !isAdmin
                 && (callerId == null || !callerId.equals(p.getSellerId()))) {
-            throw new RuntimeException("Property not found");
+            throw new NotFoundException("Property not found");
         }
-        p.setViewCount(p.getViewCount() + 1);
-        repo.save(p);
+        // Debounce: only count one view per viewer (authenticated user, or IP if anonymous) per
+        // property within the configured window, so the endpoint can't be trivially hammered
+        // (by an attacker, or by the property's own seller) to inflate its view count.
+        String viewerKey = callerId != null ? "u:" + callerId : "ip:" + (viewerIp != null ? viewerIp : "unknown");
+        if (tryClaimView(id, viewerKey)) {
+            p.setViewCount(p.getViewCount() + 1);
+            repo.save(p);
+        }
         PropertyResponse resp = toResponse(p);
         try {
-            redis.opsForValue().set(key, resp, java.time.Duration.ofSeconds(detailTtl));
+            redis.opsForValue().set(key, resp, Duration.ofSeconds(detailTtl));
         } catch (Exception e) {
             log.warn("Detail cache write error: {}", e.getMessage());
         }
         return resp;
+    }
+
+    private boolean tryClaimView(UUID propertyId, String viewerKey) {
+        try {
+            String key = VIEW_DEBOUNCE_PREFIX + propertyId + ":" + viewerKey;
+            Boolean firstViewInWindow = redis.opsForValue()
+                    .setIfAbsent(key, "1", Duration.ofMinutes(viewDebounceWindowMinutes));
+            return Boolean.TRUE.equals(firstViewInWindow);
+        } catch (Exception e) {
+            // Fail closed: if Redis is unavailable we'd rather under-count views than let the
+            // debounce be silently bypassed.
+            log.warn("View debounce check failed, not counting this view: {}", e.getMessage());
+            return false;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -152,6 +226,7 @@ public class PropertyService {
     }
 
     @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
     public Page<PropertyResponse> search(PropertySearchRequest req) {
         String cacheKey = buildSearchKey(req);
         try {
@@ -180,7 +255,7 @@ public class PropertyService {
 
         Page<PropertyResponse> result = page.map(this::toResponse);
         try {
-            redis.opsForValue().set(cacheKey, result, java.time.Duration.ofSeconds(searchTtl));
+            redis.opsForValue().set(cacheKey, result, Duration.ofSeconds(searchTtl));
         } catch (Exception e) {
             log.warn("Search cache write error: {}", e.getMessage());
         }
@@ -193,7 +268,7 @@ public class PropertyService {
     }
 
     public void activateAllForSeller(UUID sellerId) {
-        List<Property> props = repo.findBySellerIdAndStatus(sellerId, ListingStatus.DRAFT);
+        List<Property> props = new ArrayList<>(repo.findBySellerIdAndStatus(sellerId, ListingStatus.DRAFT));
         props.addAll(repo.findBySellerIdAndStatus(sellerId, ListingStatus.PENDING_VERIFICATION));
         props.forEach(p -> {
             String prevStatus = p.getStatus().name();
@@ -209,9 +284,26 @@ public class PropertyService {
         log.info("Activated {} properties for sellerId={}", props.size(), sellerId);
     }
 
+    public void suspendAllForSeller(UUID sellerId, String reason) {
+        List<Property> props = new ArrayList<>(repo.findBySellerIdAndStatus(sellerId, ListingStatus.ACTIVE));
+        props.addAll(repo.findBySellerIdAndStatus(sellerId, ListingStatus.PENDING_VERIFICATION));
+        props.addAll(repo.findBySellerIdAndStatus(sellerId, ListingStatus.DRAFT));
+        props.forEach(p -> {
+            String prevStatus = p.getStatus().name();
+            p.setStatus(ListingStatus.SUSPENDED);
+            repo.save(p);
+            auditService.log(p.getId(), "SELLER_BANNED_AUTO_SUSPENDED",
+                    prevStatus, ListingStatus.SUSPENDED.name(),
+                    null, "SYSTEM", null, reason);
+            evictDetailCache(p.getId());
+        });
+        evictSearchCache();
+        log.info("Suspended {} properties for banned sellerId={}", props.size(), sellerId);
+    }
+
     public void markOwnershipVerified(UUID propertyId, String parcelNumber, String titleDeedNumber) {
         Property p = repo.findById(propertyId)
-                .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
+                .orElseThrow(() -> new NotFoundException("Property not found: " + propertyId));
         String prevStatus = p.getStatus().name();
         p.setPropertyOwnershipVerified(true);
         boolean duplicateDetected = false;
@@ -232,7 +324,12 @@ public class PropertyService {
             p.setParcelNumber(parcelNumber);
         }
         if (titleDeedNumber != null && !titleDeedNumber.isBlank()) p.setTitleDeedNumber(titleDeedNumber);
-        if (p.isSellerIdentityVerified() && !duplicateDetected) p.setStatus(ListingStatus.ACTIVE);
+
+        boolean eligibleForActivation = p.getStatus() == ListingStatus.DRAFT
+                || p.getStatus() == ListingStatus.PENDING_VERIFICATION;
+        if (p.isSellerIdentityVerified() && !duplicateDetected && eligibleForActivation) {
+            p.setStatus(ListingStatus.ACTIVE);
+        }
         repo.save(p);
         auditService.log(propertyId, "OWNERSHIP_VERIFIED_ACTIVATION",
                 prevStatus, p.getStatus().name(),
@@ -244,9 +341,53 @@ public class PropertyService {
         evictSearchCache();
     }
 
+    public void markTransactionComplete(UUID propertyId) {
+        Property p = repo.findById(propertyId)
+                .orElseThrow(() -> new NotFoundException("Property not found: " + propertyId));
+        if (p.getStatus() != ListingStatus.ACTIVE) return;
+        String prevStatus = p.getStatus().name();
+        ListingStatus newStatus = p.getListingType() == ListingType.RENT
+                ? ListingStatus.RENTED : ListingStatus.SOLD;
+        p.setStatus(newStatus);
+        repo.save(p);
+        auditService.log(propertyId, "TRANSACTION_COMPLETED_DELISTED",
+                prevStatus, newStatus.name(),
+                null, "SYSTEM", null,
+                "Escrow released for a full payment on this property - delisted to prevent double-selling");
+        evictDetailCache(propertyId);
+        evictSearchCache();
+    }
+
+    @Transactional(readOnly = true)
+    public PropertyAdminStatsResponse getAdminStats() {
+        List<PropertyAdminStatsResponse.TypeCount> byType = repo.countActiveByType().stream()
+                .map(row -> PropertyAdminStatsResponse.TypeCount.builder()
+                        .name(String.valueOf(row[0])).value((Long) row[1]).build())
+                .collect(java.util.stream.Collectors.toList());
+
+        List<PropertyAdminStatsResponse.CountyCount> topCounties = repo.countActiveByCounty(PageRequest.of(0, 6)).stream()
+                .map(row -> PropertyAdminStatsResponse.CountyCount.builder()
+                        .name(String.valueOf(row[0])).value((Long) row[1]).build())
+                .collect(java.util.stream.Collectors.toList());
+
+        return PropertyAdminStatsResponse.builder()
+                .active(repo.countByStatus(ListingStatus.ACTIVE))
+                .draft(repo.countByStatus(ListingStatus.DRAFT))
+                .pendingVerification(repo.countByStatus(ListingStatus.PENDING_VERIFICATION))
+                .sold(repo.countByStatus(ListingStatus.SOLD))
+                .rented(repo.countByStatus(ListingStatus.RENTED))
+                .suspended(repo.countByStatus(ListingStatus.SUSPENDED))
+                .withdrawn(repo.countByStatus(ListingStatus.WITHDRAWN))
+                .avgActivePrice(repo.averageActivePrice())
+                .totalViews(repo.sumViewCount())
+                .byType(byType)
+                .topCounties(topCounties)
+                .build();
+    }
+
     public PropertyResponse adminSuspend(UUID propertyId, UUID adminId) {
         Property p = repo.findById(propertyId)
-                .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
+                .orElseThrow(() -> new NotFoundException("Property not found: " + propertyId));
         String prevStatus = p.getStatus().name();
         p.setStatus(ListingStatus.SUSPENDED);
         Property saved = repo.save(p);
@@ -259,7 +400,7 @@ public class PropertyService {
 
     public PropertyResponse adminReactivate(UUID propertyId, UUID adminId) {
         Property p = repo.findById(propertyId)
-                .orElseThrow(() -> new RuntimeException("Property not found: " + propertyId));
+                .orElseThrow(() -> new NotFoundException("Property not found: " + propertyId));
         String prevStatus = p.getStatus().name();
         boolean fullyVerified = p.isSellerIdentityVerified() && p.isPropertyOwnershipVerified() && !p.isDuplicateParcelFlag();
         p.setStatus(fullyVerified ? ListingStatus.ACTIVE : ListingStatus.PENDING_VERIFICATION);
@@ -281,8 +422,8 @@ public class PropertyService {
     }
 
     private Property findByIdAndSeller(UUID id, UUID sellerId) {
-        Property p = repo.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
-        if (!p.getSellerId().equals(sellerId)) throw new RuntimeException("Access denied");
+        Property p = repo.findById(id).orElseThrow(() -> new NotFoundException("Property not found"));
+        if (!p.getSellerId().equals(sellerId)) throw new ForbiddenException("Access denied");
         return p;
     }
 

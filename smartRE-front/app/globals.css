@@ -10,6 +10,15 @@
   --gold-dark: #AD8620;
   --gold-glow: rgba(201,162,39,0.18);
   --topbar-h: 64px;
+  --bg: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+}
+
+.dark {
+  --bg: #201911;
+  --border: #3A2F1F;
+  --text: #f9fafb;
 }
 
 @layer base {

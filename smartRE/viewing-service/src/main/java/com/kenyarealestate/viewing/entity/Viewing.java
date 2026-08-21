@@ -70,4 +70,9 @@ public class Viewing {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
 }

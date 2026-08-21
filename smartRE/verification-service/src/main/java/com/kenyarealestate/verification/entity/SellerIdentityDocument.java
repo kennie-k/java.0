@@ -45,6 +45,11 @@ public class SellerIdentityDocument {
     @Column(name = "ai_screening_notes", columnDefinition = "TEXT") private String aiScreeningNotes;
     @Column(name = "ai_screened_at")        private LocalDateTime aiScreenedAt;
 
+    // Populated only for categories in ID_NUMBER_EXTRACTABLE (see SellerIdentityVerificationService) —
+    // stays null for document types that don't carry a printed ID number (selfies, utility bills, etc.),
+    // and also stays null if the OCR model returned UNREADABLE or an implausible result.
+    @Column(name = "extracted_id_number") private String extractedIdNumber;
+
     @Column(name = "human_verified")        private Boolean humanVerified;
     @Column(name = "human_reviewer_id")     private UUID humanReviewerId;
     @Column(name = "human_review_notes", columnDefinition = "TEXT") private String humanReviewNotes;

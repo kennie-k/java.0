@@ -1,6 +1,7 @@
 package com.kenyarealestate.payment.repository;
 
 import com.kenyarealestate.payment.entity.CompanyRevenue;
+import com.kenyarealestate.payment.entity.RevenueStatus;
 import com.kenyarealestate.payment.entity.RevenueType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +27,10 @@ public interface CompanyRevenueRepository extends JpaRepository<CompanyRevenue, 
     Page<CompanyRevenue> findByRevenueTypeOrderByCreatedAtDesc(RevenueType type, Pageable pageable);
 
     Optional<CompanyRevenue> findByB2cOriginatorConversationId(String originatorConversationId);
+
+    Optional<CompanyRevenue> findByStatusQueryConversationId(String statusQueryConversationId);
+
+    List<CompanyRevenue> findByStatusAndCreatedAtBefore(RevenueStatus status, LocalDateTime cutoff);
 
     @Query("SELECT COALESCE(SUM(r.platformFee), 0) FROM CompanyRevenue r")
     BigDecimal sumTotalPlatformFees();

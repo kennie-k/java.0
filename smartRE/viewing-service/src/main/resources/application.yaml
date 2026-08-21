@@ -87,7 +87,14 @@ springdoc:
 
 services:
   payment-url:     ${PAYMENT_SERVICE_URL:http://payment-service:8085}
+  property-url:    ${PROPERTY_SERVICE_URL:http://property-service:8083}
   internal-secret: ${INTERNAL_SECRET}
 
 gateway:
   signing-secret: ${GATEWAY_SIGNING_SECRET}
+
+logging:
+  pattern:
+    # Includes the gateway-issued X-Correlation-Id (see CorrelationIdFilter) so log
+    # lines for a single request can be grepped/correlated across services in Loki.
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [%X{correlationId:-}] [%15.15t] %-40.40logger{39} : %m%n%wEx"

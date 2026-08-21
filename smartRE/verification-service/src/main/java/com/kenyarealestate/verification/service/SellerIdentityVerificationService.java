@@ -10,14 +10,17 @@ import com.kenyarealestate.verification.enums.*;
 import com.kenyarealestate.verification.exception.*;
 import com.kenyarealestate.verification.repository.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,9 +38,18 @@ public class SellerIdentityVerificationService {
     private final SmileIdentityClient smileIdentityClient;
     private final VerificationEventPublisher eventPublisher;
     private final TrustStatusService trustStatusService;
+    private final FraudFlagService fraudFlagService;
 
     @Value("${verification.max-fraud-strikes:3}")
     private int maxFraudStrikes;
+
+
+    private static final Set<IdentityDocumentCategory> ID_NUMBER_EXTRACTABLE = Set.of(
+            IdentityDocumentCategory.NATIONAL_ID_FRONT,
+            IdentityDocumentCategory.NATIONAL_ID_BACK,
+            IdentityDocumentCategory.PASSPORT,
+            IdentityDocumentCategory.KRA_PIN_CERTIFICATE
+    );
 
     @Value("${verification.identity-expiry-years:2}")
     private int identityExpiryYears;
@@ -65,7 +77,8 @@ public class SellerIdentityVerificationService {
             DocumentAnalysisService documentAnalysisService,
             SmileIdentityClient smileIdentityClient,
             VerificationEventPublisher eventPublisher,
-            TrustStatusService trustStatusService) {
+            TrustStatusService trustStatusService,
+            FraudFlagService fraudFlagService) {
         this.identityRepo            = identityRepo;
         this.docRepo                 = docRepo;
         this.fraudRepo               = fraudRepo;
@@ -76,6 +89,7 @@ public class SellerIdentityVerificationService {
         this.smileIdentityClient     = smileIdentityClient;
         this.eventPublisher          = eventPublisher;
         this.trustStatusService      = trustStatusService;
+        this.fraudFlagService        = fraudFlagService;
     }
 
     public IdentityVerificationResponse startVerification(UUID userId) {
@@ -142,10 +156,44 @@ public class SellerIdentityVerificationService {
         if (verif.getStatus() == IdentityVerificationStatus.REQUIRES_RESUBMISSION)
             verif.setStatus(IdentityVerificationStatus.DRAFT);
 
-        verif = identityRepo.save(verif);
+        try {
+            verif = identityRepo.save(verif);
+
+            identityRepo.flush();
+        } catch (DataIntegrityViolationException e) {
+            if (!isDuplicateHashViolation(e)) throw e;
+
+            flagFraud(verif, "DUPLICATE_DOCUMENT_HASH", req.getDocumentCategory().name(),
+                    serverHash, "Concurrent duplicate upload detected at database level");
+            throw new DuplicateDocumentException(
+                    "This exact document already exists in the system. This incident is logged.");
+        }
+
         auditService.log(verif.getId(), "IDENTITY", "DOCUMENT_UPLOADED", userId, "SELLER",
                 null, null, "Category: " + req.getDocumentCategory()
                         + " Hash: " + serverHash.substring(0, 12) + "...");
+        return toResponse(verif);
+    }
+
+    public IdentityVerificationResponse deleteDocument(UUID userId, UUID documentId) {
+        SellerIdentityVerification verif = getVerifByUserId(userId);
+
+        if (verif.isPermanentlyBanned())
+            throw new VerificationException("Account permanently banned. Reason: " + verif.getBanReason());
+        if (verif.getStatus() == IdentityVerificationStatus.APPROVED)
+            throw new VerificationException("Identity already approved.");
+        if (verif.getStatus() != IdentityVerificationStatus.DRAFT
+                && verif.getStatus() != IdentityVerificationStatus.REJECTED
+                && verif.getStatus() != IdentityVerificationStatus.REQUIRES_RESUBMISSION
+                && verif.getStatus() != IdentityVerificationStatus.EXPIRED)
+            throw new VerificationException("Cannot remove documents while status is " + verif.getStatus() + ".");
+
+        boolean removed = verif.getDocuments().removeIf(d -> d.getId().equals(documentId));
+        if (!removed) throw new NotFoundException("Document not found: " + documentId);
+
+        verif = identityRepo.save(verif);
+        auditService.log(verif.getId(), "IDENTITY", "DOCUMENT_REMOVED", userId, "SELLER",
+                null, null, "Document: " + documentId);
         return toResponse(verif);
     }
 
@@ -175,9 +223,9 @@ public class SellerIdentityVerificationService {
         if (biometricHardBlock && verif.getFraudStrikeCount() > 0
                 && smileIdentityClient.isEnabled()) {
             throw new VerificationException(
-                    "Submission blocked: biometric checks failed. " +
-                            "Your National ID could not be verified or your face does not match the ID. " +
-                            "Please ensure you are submitting genuine documents.");
+                    "Submission blocked: identity checks failed. Your National ID could not be verified, " +
+                            "your face does not match the ID, or your National ID number is already registered " +
+                            "to a different account. Please ensure you are submitting genuine documents.");
         }
 
         String prev = verif.getStatus().name();
@@ -191,9 +239,38 @@ public class SellerIdentityVerificationService {
             return toResponse(verif);
         }
 
-        verif.setStatus(IdentityVerificationStatus.SUBMITTED);
+        verif.setStatus(IdentityVerificationStatus.AI_SCREENING);
         verif = identityRepo.save(verif);
-        auditService.log(verif.getId(), "IDENTITY", "SUBMITTED", userId, "SELLER", prev, "SUBMITTED", null);
+        auditService.log(verif.getId(), "IDENTITY", "SUBMITTED_FOR_AI_ANALYSIS", userId, "SELLER",
+                prev, "AI_SCREENING", null);
+
+
+        for (SellerIdentityDocument doc : List.copyOf(verif.getDocuments())) {
+            if (!Boolean.TRUE.equals(doc.getIsRequired())) continue;
+
+            DocumentAnalysisService.DocumentAnalysisResult analysis =
+                    documentAnalysisService.analyseDocument(doc.getDocumentUrl(), doc.getDocumentCategory().name());
+
+            AiScreeningRequest screeningReq = new AiScreeningRequest();
+            screeningReq.setDocumentId(doc.getId());
+            screeningReq.setAiAuthenticityScore(analysis.authenticityScore());
+            screeningReq.setAiTamperDetected(analysis.tamperDetected());
+            screeningReq.setAiMetadataClean(analysis.metadataClean());
+            screeningReq.setAiFontConsistency(analysis.fontConsistency());
+            screeningReq.setAiSignatureDetected(analysis.signatureDetected());
+            screeningReq.setAiSealDetected(analysis.sealDetected());
+            screeningReq.setAiScreeningNotes(analysis.notes());
+
+
+            if (ID_NUMBER_EXTRACTABLE.contains(doc.getDocumentCategory())) {
+                String extractedId = documentAnalysisService.extractIdNumber(doc.getDocumentUrl(), doc.getMimeType());
+                screeningReq.setExtractedIdNumber(extractedId);
+            }
+
+            applyAiScreeningResult(verif, doc, screeningReq);
+            if (verif.getStatus() == IdentityVerificationStatus.REJECTED) break;
+        }
+
         return toResponse(verif);
     }
 
@@ -206,6 +283,12 @@ public class SellerIdentityVerificationService {
                 .findFirst()
                 .orElseThrow(() -> new NotFoundException("Document not found: " + req.getDocumentId()));
 
+        applyAiScreeningResult(verif, doc, req);
+        return toResponse(verif);
+    }
+
+    private void applyAiScreeningResult(SellerIdentityVerification verif, SellerIdentityDocument doc,
+                                        AiScreeningRequest req) {
         doc.setAiAuthenticityScore(req.getAiAuthenticityScore());
         doc.setAiTamperDetected(req.getAiTamperDetected());
         doc.setAiMetadataClean(req.getAiMetadataClean());
@@ -213,6 +296,7 @@ public class SellerIdentityVerificationService {
         doc.setAiSignatureDetected(req.getAiSignatureDetected());
         doc.setAiSealDetected(req.getAiSealDetected());
         doc.setAiScreeningNotes(req.getAiScreeningNotes());
+        doc.setExtractedIdNumber(req.getExtractedIdNumber()); // new
         doc.setAiScreenedAt(LocalDateTime.now());
 
         if (Boolean.TRUE.equals(req.getAiTamperDetected())) {
@@ -227,7 +311,7 @@ public class SellerIdentityVerificationService {
             auditService.log(verif.getId(), "IDENTITY", "AUTO_REJECTED_TAMPER",
                     null, "SYSTEM", "AI_SCREENING", "REJECTED",
                     "Doc: " + doc.getDocumentCategory() + " | Strikes: " + verif.getFraudStrikeCount());
-            return toResponse(verif);
+            return;
         }
 
         int score = scoringEngine.computeIdentityScore(verif);
@@ -239,32 +323,17 @@ public class SellerIdentityVerificationService {
                 .allMatch(d -> d.getAiScreenedAt() != null);
 
         if (allDone) {
-            if (score >= autoApproveScore && verif.getFraudStrikeCount() == 0) {
-                verif.setStatus(IdentityVerificationStatus.APPROVED);
-                verif.setReviewedAt(LocalDateTime.now());
-                verif.setExpiresAt(LocalDateTime.now().plusYears(identityExpiryYears));
-                verif = identityRepo.save(verif);
-                auditService.log(verif.getId(), "IDENTITY", "AUTO_APPROVED",
-                        null, "SYSTEM", "AI_SCREENING", "APPROVED",
-                        "Score " + score + " >= threshold " + autoApproveScore + ". Zero fraud strikes.");
-                propertyClient.activateAllListingsForSeller(verif.getUserId(), null);
-                eventPublisher.publishIdentityApproved(verif.getUserId(), verif.getId(),
-                        LocalDateTime.now(), verif.getExpiresAt());
-                trustStatusService.evictCache(verif.getUserId());
-            } else {
-                verif.setStatus(IdentityVerificationStatus.HUMAN_REVIEW);
-                verif = identityRepo.save(verif);
-                auditService.log(verif.getId(), "IDENTITY", "SENT_TO_HUMAN_REVIEW",
-                        null, "SYSTEM", "AI_SCREENING", "HUMAN_REVIEW",
-                        "Score: " + score + " | Badge: " + verif.getBadgeLevel()
-                                + " | Strikes: " + verif.getFraudStrikeCount());
-            }
+            verif.setStatus(IdentityVerificationStatus.HUMAN_REVIEW);
+            identityRepo.save(verif);
+            auditService.log(verif.getId(), "IDENTITY", "SENT_TO_HUMAN_REVIEW",
+                    null, "SYSTEM", "AI_SCREENING", "HUMAN_REVIEW",
+                    "Score: " + score + " | Badge: " + verif.getBadgeLevel()
+                            + " | Strikes: " + verif.getFraudStrikeCount()
+                            + " | Meets auto-approve threshold: " + (score >= autoApproveScore && verif.getFraudStrikeCount() == 0));
         } else {
             verif.setStatus(IdentityVerificationStatus.AI_SCREENING);
             identityRepo.save(verif);
         }
-
-        return toResponse(verif);
     }
 
     public IdentityVerificationResponse adminReview(UUID verificationId,
@@ -320,6 +389,14 @@ public class SellerIdentityVerificationService {
     }
 
     @Transactional(readOnly = true)
+    public FraudSummaryResponse getFraudSummary() {
+        return FraudSummaryResponse.builder()
+                .totalFraudStrikes(identityRepo.sumFraudStrikeCount())
+                .permanentlyBanned(identityRepo.countByPermanentlyBannedTrue())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public boolean isIdentityVerified(UUID userId) {
         return identityRepo.findByUserId(userId).map(v -> {
             if (v.getStatus() != IdentityVerificationStatus.APPROVED) return false;
@@ -360,37 +437,60 @@ public class SellerIdentityVerificationService {
                     "Smile Identity: Face does not match ID. Confidence: " + result.faceMatchConfidence());
         }
 
-        if (!biometricPassed) checkAndApplyBan(verif);
+        boolean duplicateNationalId = false;
+        if (result.idValid() && StringUtils.hasText(result.idNumber())) {
+            if (identityRepo.existsByNationalIdNumberAndUserIdNot(result.idNumber(), userId)) {
+                flagFraud(verif, "DUPLICATE_NATIONAL_ID", "NATIONAL_ID_FRONT", null,
+                        "National ID number " + result.idNumber() + " is already registered to a different account");
+                duplicateNationalId = true;
+            } else {
+                verif.setNationalIdNumber(result.idNumber());
+                try {
+                    identityRepo.saveAndFlush(verif);
+                } catch (DataIntegrityViolationException e) {
+                    if (!isDuplicateNationalIdViolation(e)) throw e;
+                    flagFraud(verif, "DUPLICATE_NATIONAL_ID", "NATIONAL_ID_FRONT", null,
+                            "National ID number matches another account (race-condition-safe check)");
+                    duplicateNationalId = true;
+                }
+            }
+        }
+
+        if (!biometricPassed || duplicateNationalId) checkAndApplyBan(verif);
 
         auditService.log(verif.getId(), "IDENTITY", "BIOMETRIC_CHECK_COMPLETE", userId, "SYSTEM",
                 null, null,
                 "ID valid: " + result.idValid()
                         + " | Face match: " + result.faceMatch()
+                        + " | Duplicate national ID: " + duplicateNationalId
                         + " | Confidence: " + result.faceMatchConfidence()
-                        + " | Blocked: " + (!biometricPassed && biometricHardBlock));
+                        + " | Blocked: " + ((!biometricPassed || duplicateNationalId) && biometricHardBlock));
+    }
+
+    private boolean isDuplicateNationalIdViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("uk_siv_national_id");
     }
 
     private void flagFraud(SellerIdentityVerification verif, String fraudType,
                            String docCategory, String docHash, String details) {
-        fraudRepo.save(VerificationFraudFlag.builder()
-                .userId(verif.getUserId()).verificationId(verif.getId())
-                .verificationTrack("IDENTITY").fraudType(fraudType)
-                .documentCategory(docCategory).documentHash(docHash)
-                .details(details).build());
-        verif.setFraudStrikeCount(verif.getFraudStrikeCount() + 1);
-        identityRepo.save(verif);
+        int strikes = fraudFlagService.flagIdentityFraud(
+                verif.getId(), verif.getUserId(), fraudType, docCategory, docHash, details);
+        verif.setFraudStrikeCount(strikes);
+    }
+
+    private boolean isDuplicateHashViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("uk_sid_file_hash");
     }
 
     private void checkAndApplyBan(SellerIdentityVerification verif) {
         if (verif.getFraudStrikeCount() >= maxFraudStrikes) {
+            fraudFlagService.applyIdentityBanIfNeeded(verif.getId(), verif.getFraudStrikeCount());
             verif.setPermanentlyBanned(true);
             verif.setBanReason(
                     "Permanently banned after " + verif.getFraudStrikeCount() + " fraud strikes. "
                             + "Submitting falsified documents is a criminal offence under Kenya Penal Code Cap 63.");
-            identityRepo.save(verif);
-            auditService.log(verif.getId(), "IDENTITY", "ACCOUNT_PERMANENTLY_BANNED",
-                    null, "SYSTEM", null, "BANNED",
-                    "Total fraud strikes: " + verif.getFraudStrikeCount());
         }
     }
 

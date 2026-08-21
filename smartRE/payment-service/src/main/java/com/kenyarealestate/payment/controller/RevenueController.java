@@ -3,6 +3,7 @@ package com.kenyarealestate.payment.controller;
 import com.kenyarealestate.payment.dto.*;
 import com.kenyarealestate.payment.entity.MpesaRawCallback;
 import com.kenyarealestate.payment.repository.MpesaRawCallbackRepository;
+import com.kenyarealestate.payment.security.CallbackIpPolicy;
 import com.kenyarealestate.payment.security.CallbackSecurity;
 import com.kenyarealestate.payment.security.JwtUtil;
 import com.kenyarealestate.payment.service.PaymentAuditService;
@@ -33,22 +34,22 @@ public class RevenueController {
     private final PaymentAuditService auditService;
     private final ReceiptService receiptService;
     private final MpesaRawCallbackRepository rawCallbackRepo;
+    private final CallbackIpPolicy callbackIpPolicy;
 
     @org.springframework.beans.factory.annotation.Value("${mpesa.callback-secret}")
     private String callbackSecret;
 
-    @org.springframework.beans.factory.annotation.Value("${mpesa.callback-allowed-ips:}")
-    private String callbackAllowedIps;
-
     public RevenueController(RevenueService svc, JwtUtil jwtUtil,
                               PaymentAuditService auditService,
                               ReceiptService receiptService,
-                              MpesaRawCallbackRepository rawCallbackRepo) {
+                              MpesaRawCallbackRepository rawCallbackRepo,
+                              CallbackIpPolicy callbackIpPolicy) {
         this.svc = svc;
         this.jwtUtil = jwtUtil;
         this.auditService = auditService;
         this.receiptService = receiptService;
         this.rawCallbackRepo = rawCallbackRepo;
+        this.callbackIpPolicy = callbackIpPolicy;
     }
 
     @GetMapping("/summary")
@@ -113,7 +114,7 @@ public class RevenueController {
             log.warn("B2C callback received with invalid secret from IP {}", callerIp);
             return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
         }
-        if (!CallbackSecurity.ipAllowed(callerIp, callbackAllowedIps)) {
+        if (!callbackIpPolicy.isAllowed(callerIp)) {
             log.warn("B2C callback received from disallowed IP {}", callerIp);
             return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
         }
@@ -147,6 +148,48 @@ public class RevenueController {
                     null);
         } catch (Exception e) {
             log.error("B2C callback error: {}", e.getMessage(), e);
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/mpesa/b2c/status-callback/{secret}")
+    public ResponseEntity<Void> b2cStatusCallback(
+            @PathVariable String secret, @RequestBody String rawBody, HttpServletRequest r) {
+        String callerIp = getClientIp(r);
+        if (!CallbackSecurity.secretMatches(secret, callbackSecret)) {
+            log.warn("B2C status-query callback received with invalid secret from IP {}", callerIp);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+        }
+        if (!callbackIpPolicy.isAllowed(callerIp)) {
+            log.warn("B2C status-query callback received from disallowed IP {}", callerIp);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+        }
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            B2cCallbackRequest req = om.readValue(rawBody, B2cCallbackRequest.class);
+            var result = req.getResult();
+
+            rawCallbackRepo.save(MpesaRawCallback.builder()
+                    .callbackType("B2C_STATUS_QUERY")
+                    .originatorConversationId(result.getOriginatorConversationId())
+                    .resultCode(result.getResultCode())
+                    .resultDesc(result.getResultDesc())
+                    .rawPayload(rawBody)
+                    .build());
+
+            String transactionStatus = null;
+            if (result.getResultParameters() != null && result.getResultParameters().getResultParameter() != null) {
+                transactionStatus = result.getResultParameters().getResultParameter().stream()
+                        .filter(p -> "TransactionStatus".equals(p.getKey()))
+                        .map(p -> String.valueOf(p.getValue()))
+                        .findFirst().orElse(result.getResultDesc());
+            } else {
+                transactionStatus = result.getResultDesc();
+            }
+
+            svc.handleStatusQueryCallback(result.getOriginatorConversationId(), transactionStatus, rawBody);
+        } catch (Exception e) {
+            log.error("B2C status-query callback error: {}", e.getMessage(), e);
         }
         return ResponseEntity.ok().build();
     }

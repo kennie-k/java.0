@@ -21,9 +21,23 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
     @Query("UPDATE Property p SET p.viewCount = p.viewCount + 1 WHERE p.id = :id")
     void incrementViewCount(@Param("id") UUID id);
 
+    long countByStatus(ListingStatus status);
+
+    @Query("SELECT COALESCE(AVG(p.price), 0) FROM Property p WHERE p.status = 'ACTIVE'")
+    BigDecimal averageActivePrice();
+
+    @Query("SELECT COALESCE(SUM(p.viewCount), 0) FROM Property p")
+    long sumViewCount();
+
+    @Query("SELECT p.propertyType, COUNT(p) FROM Property p WHERE p.status = 'ACTIVE' GROUP BY p.propertyType")
+    List<Object[]> countActiveByType();
+
+    @Query("SELECT p.county, COUNT(p) FROM Property p WHERE p.status = 'ACTIVE' GROUP BY p.county ORDER BY COUNT(p) DESC")
+    List<Object[]> countActiveByCounty(Pageable p);
+
     @Query(value =
             "SELECT * FROM properties p WHERE p.status = 'ACTIVE'" +
-                    " AND (:county IS NULL OR LOWER(p.county) LIKE LOWER(CONCAT('%',:county,'%')))" +
+                    " AND (:county IS NULL OR LOWER(p.county) = LOWER(:county))" +
                     " AND (:city IS NULL OR LOWER(p.city) LIKE LOWER(CONCAT('%',:city,'%')))" +
                     " AND (CAST(:type AS VARCHAR) IS NULL OR p.property_type = CAST(:type AS VARCHAR))" +
                     " AND (CAST(:lt AS VARCHAR) IS NULL OR p.listing_type = CAST(:lt AS VARCHAR))" +
@@ -36,7 +50,7 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
                     "  ",
             countQuery =
                     "SELECT COUNT(*) FROM properties p WHERE p.status = 'ACTIVE'" +
-                            " AND (:county IS NULL OR LOWER(p.county) LIKE LOWER(CONCAT('%',:county,'%')))" +
+                            " AND (:county IS NULL OR LOWER(p.county) = LOWER(:county))" +
                             " AND (:city IS NULL OR LOWER(p.city) LIKE LOWER(CONCAT('%',:city,'%')))" +
                             " AND (CAST(:type AS VARCHAR) IS NULL OR p.property_type = CAST(:type AS VARCHAR))" +
                             " AND (CAST(:lt AS VARCHAR) IS NULL OR p.listing_type = CAST(:lt AS VARCHAR))" +

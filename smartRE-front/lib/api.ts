@@ -10,7 +10,8 @@ api.interceptors.response.use(
   err => {
     const url = err.config?.url || ''
     const isAuthEndpoint = url.includes('/api/auth/login') || url.includes('/api/auth/register')
-    if (err.response?.status === 401 && typeof window !== 'undefined' && !isAuthEndpoint) {
+    const silent = (err.config as { silentAuthCheck?: boolean } | undefined)?.silentAuthCheck
+    if (err.response?.status === 401 && typeof window !== 'undefined' && !isAuthEndpoint && !silent) {
       const hadSession = !!localStorage.getItem('sre_user')
       localStorage.removeItem('sre_user')
       if (hadSession) {
@@ -20,6 +21,12 @@ api.interceptors.response.use(
           window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`
         }, 1200)
       }
+    }
+    if (err.response?.status === 403 && err.response?.headers?.['x-error-reason'] === 'Account has been banned'
+        && typeof window !== 'undefined') {
+      localStorage.removeItem('sre_user')
+      toast.error('This account has been banned.')
+      setTimeout(() => { window.location.href = '/login' }, 1200)
     }
     return Promise.reject(err)
   }
@@ -37,7 +44,7 @@ import type {
   OwnershipVerificationResponse,
   ViewingResponse, PaymentResponse, PaymentAuditResponse,
   PaymentReceiptResponse, RevenueSummaryResponse, RevenueResponse,
-  ReviewResponse, SellerRatingResponse,
+  ReviewResponse, SellerRatingResponse, ReviewAdminStatsResponse,
   ReportResponse, AgentApplicationResponse,
 } from '@/types'
 
@@ -49,12 +56,19 @@ export const authApi = {
   resetPassword:  (token:string, newPassword:string) => po<void>('/api/auth/reset-password', { token, newPassword }),
 }
 
+// Background revalidation of the persisted local session against the real
+// server-side one (cookie expiry, revocation, ban) — deliberately bypasses
+// the loud 401 toast/redirect since this runs unprompted on every page load.
+export const validateSession = () =>
+  api.get('/api/users/me', { silentAuthCheck: true } as object)
+
 export const userApi = {
   me:       () => g<UserResponse>('/api/users/me'),
   updateMe: (d:object) => pu<UserResponse>('/api/users/me', d),
   changePassword: (d:object) => pu<void>('/api/users/me/password', d),
   getById:  (id:string) => g<UserResponse>(`/api/users/${id}`),
-  allAdmin: (size = 500) => g<PageResponse<UserResponse>>('/api/users/admin/all', { size }),
+  allAdmin: (page = 0, size = 20) => g<PageResponse<UserResponse>>('/api/users/admin/all', { page, size }),
+  adminStats: () => g<{ buyers: number; sellers: number; agents: number; admins: number; total: number; verified: number }>('/api/users/admin/stats'),
   promote:  (id:string) => pu<UserResponse>(`/api/users/admin/${id}/promote`),
   ban:      (id:string) => pu<UserResponse>(`/api/users/admin/${id}/ban`),
   unban:    (id:string) => pu<UserResponse>(`/api/users/admin/${id}/unban`),
@@ -66,9 +80,14 @@ export const propertyApi = {
   delete:   (id:string) => de(`/api/properties/${id}`),
   getById:  (id:string) => g<PropertyResponse>(`/api/properties/${id}`),
   search:   (p:object) => g<PageResponse<PropertyResponse>>('/api/properties/search', p),
-  my:       (page = 0) => g<PageResponse<PropertyResponse>>('/api/properties/my', { page, size: 20 }),
+  my:       (page = 0, size = 20) => g<PageResponse<PropertyResponse>>('/api/properties/my', { page, size }),
   bySeller: (sid:string) => g<PropertyResponse[]>(`/api/properties/seller/${sid}`),
   adminAll: (p?: { status?: string; page?: number; size?: number }) => g<PageResponse<PropertyResponse>>('/api/properties/admin/all', p),
+  adminStats: () => g<{
+    active: number; draft: number; pendingVerification: number; sold: number; rented: number; suspended: number; withdrawn: number
+    avgActivePrice: number; totalViews: number
+    byType: { name: string; value: number }[]; topCounties: { name: string; value: number }[]
+  }>('/api/properties/admin/stats'),
   adminSuspend:   (id:string) => pu<PropertyResponse>(`/api/properties/admin/${id}/suspend`),
   adminReactivate:(id:string) => pu<PropertyResponse>(`/api/properties/admin/${id}/reactivate`),
 }
@@ -78,12 +97,15 @@ export const verifApi = {
   trustProp:    (uid:string, pid:string) => g<TrustStatusResponse>(`/api/verification/trust-status/${uid}/property/${pid}`),
   startId:      () => po<IdentityVerificationResponse>('/api/verification/identity/start'),
   uploadIdDoc:  (d:object) => po('/api/verification/identity/documents', d),
+  deleteIdDoc:  (documentId:string) => de<IdentityVerificationResponse>(`/api/verification/identity/documents/${documentId}`),
   submitId:     () => po<IdentityVerificationResponse>('/api/verification/identity/submit'),
   myId:         () => g<IdentityVerificationResponse>('/api/verification/identity/me'),
   idAdminQueue: (size = 500) => g<PageResponse<IdentityVerificationResponse>>('/api/verification/identity/admin/queue', { size }),
+  idFraudSummary: () => g<{ totalFraudStrikes: number; permanentlyBanned: number }>('/api/verification/identity/admin/fraud-summary'),
   idAdminReview:(id:string, d:object) => pu(`/api/verification/identity/admin/${id}/review`, d),
   startOwner:   (d:object) => po<OwnershipVerificationResponse>('/api/verification/ownership/start', d),
   uploadOwnerDoc:(id:string, d:object) => po<OwnershipVerificationResponse>(`/api/verification/ownership/${id}/documents`, d),
+  deleteOwnerDoc:(id:string, documentId:string) => de<OwnershipVerificationResponse>(`/api/verification/ownership/${id}/documents/${documentId}`),
   submitOwner:  (id:string) => po<OwnershipVerificationResponse>(`/api/verification/ownership/${id}/submit`),
   myOwner:      () => g<OwnershipVerificationResponse[]>('/api/verification/ownership/me'),
   ownerByProp:  (pid:string) => g<OwnershipVerificationResponse>(`/api/verification/ownership/property/${pid}`),
@@ -96,19 +118,20 @@ export const verifApi = {
 
 export const viewingApi = {
   schedule:      (d:object) => po<ViewingResponse>('/api/viewings', d),
-  myBuyer:       (page = 0) => g<PageResponse<ViewingResponse>>('/api/viewings/my/buyer', { page, size: 20 }),
-  mySeller:      (page = 0) => g<PageResponse<ViewingResponse>>('/api/viewings/my/seller', { page, size: 20 }),
+  myBuyer:       (page = 0, size = 20) => g<PageResponse<ViewingResponse>>('/api/viewings/my/buyer', { page, size }),
+  mySeller:      (page = 0, size = 20) => g<PageResponse<ViewingResponse>>('/api/viewings/my/seller', { page, size }),
   confirmSeller: (id:string) => pu<ViewingResponse>(`/api/viewings/${id}/confirm-seller`),
   confirmBuyer:  (id:string) => pu<ViewingResponse>(`/api/viewings/${id}/confirm-buyer`),
   complete:      (id:string) => pu<ViewingResponse>(`/api/viewings/${id}/complete`),
-  cancel:        (id:string, d:object) => pu<ViewingResponse>(`/api/viewings/${id}/cancel`, d),
+  cancel:        (id:string, reason?:string) => puParams<ViewingResponse>(`/api/viewings/${id}/cancel`, { reason }),
 }
 
 export const paymentApi = {
   initiate: (d:object) => po<PaymentResponse>('/api/payments/initiate', d),
   getById:  (id:string) => g<PaymentResponse>(`/api/payments/${id}`),
   getConfig: () => g<{viewingFeeKes:number; profileAccessFeeKes:number; transactionCommissionPct:number}>('/api/payments/config'),
-  my:       (page = 0) => g<PageResponse<PaymentResponse>>('/api/payments/my', { page, size: 20 }),
+  my:       (page = 0, size = 20) => g<PageResponse<PaymentResponse>>('/api/payments/my', { page, size }),
+  mySummary: () => g<{ totalPaid: number; completedCount: number; pendingCount: number }>('/api/payments/my/summary'),
   pendingRelease: (page = 0) => g<PageResponse<PaymentResponse>>('/api/payments/admin/pending-release', { page, size: 20 }),
   audit:    (id:string) => g<PaymentAuditResponse[]>(`/api/payments/${id}/audit`),
   receipt:  (id:string) => g<PaymentReceiptResponse>(`/api/payments/${id}/receipt`),
@@ -131,6 +154,9 @@ export const reviewApi = {
   bySeller:     (sid:string) => g<PageResponse<ReviewResponse>>(`/api/reviews/seller/${sid}`),
   sellerRating: (sid:string) => g<SellerRatingResponse>(`/api/reviews/seller/${sid}/rating`),
   myReviews:    (page = 0) => g<PageResponse<ReviewResponse>>('/api/reviews/my', { page, size: 20 }),
+  adminHide:    (id:string, reason?:string) => puParams<ReviewResponse>(`/api/reviews/admin/${id}/hide`, { reason }),
+  adminAll:     (p?: { visible?: boolean; page?: number; size?: number }) => g<PageResponse<ReviewResponse>>('/api/reviews/admin/all', p),
+  adminStats:   () => g<ReviewAdminStatsResponse>('/api/reviews/admin/stats'),
 }
 
 export const reportApi = {

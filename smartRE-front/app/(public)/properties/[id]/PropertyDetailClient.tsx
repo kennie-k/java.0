@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Building2, MapPin, Calendar, ShieldCheck, Trash2, ArrowLeft, LogIn, Landmark, FileCheck, Wallet, Lock, Check, X, AlertTriangle, UserSearch, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, MapPin, Calendar, ShieldCheck, Trash2, ArrowLeft, LogIn, Landmark, FileCheck, Wallet, Lock, Check, X, AlertTriangle, UserSearch, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react'
 import { propertyApi, viewingApi, reviewApi, verifApi, paymentApi } from '@/lib/api'
 import ReportButton from '@/components/report/ReportButton'
 import { usePlatformConfig } from '@/hooks/usePlatformConfig'
@@ -41,6 +42,7 @@ export default function PropertyDetailClient() {
   const [scheduling, setSched]= useState(false)
   const [viewForm, setVF]     = useState({ scheduledAt: '', buyerPhone: '', notes: '' })
   const [activeImage, setActiveImage] = useState(0)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   const galleryRef = useRef<HTMLDivElement>(null)
 
   const scrollToImage = (i: number) => {
@@ -57,12 +59,28 @@ export default function PropertyDetailClient() {
   }
 
   useEffect(() => {
+    document.body.style.overflow = lightboxOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [lightboxOpen])
+
+  useEffect(() => {
+    if (!lightboxOpen || !prop?.imageUrls) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxOpen(false)
+      if (e.key === 'ArrowLeft') setActiveImage(i => Math.max(0, i - 1))
+      if (e.key === 'ArrowRight') setActiveImage(i => Math.min(prop.imageUrls!.length - 1, i + 1))
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightboxOpen, prop?.imageUrls])
+
+  useEffect(() => {
     if (!id) return
     Promise.allSettled([propertyApi.getById(id), reviewApi.byProperty(id)]).then(([p, r]) => {
       if (p.status === 'fulfilled') {
         setProp(p.value)
         reviewApi.sellerRating(p.value.sellerId).then(setRating).catch(() => {})
-        verifApi.trustStatus(p.value.sellerId).then(setTrust).catch(() => {})
+        verifApi.trustProp(p.value.sellerId, p.value.id).then(setTrust).catch(() => {})
       } else setNF(true)
       if (r.status === 'fulfilled') setReviews(r.value.content || [])
     }).finally(() => setLoad(false))
@@ -143,11 +161,17 @@ export default function PropertyDetailClient() {
           className="h-64 sm:h-80 rounded-2xl overflow-x-auto flex snap-x snap-mandatory scroll-smooth no-scrollbar"
         >
           {(prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : [null]).map((url, i) => (
-            <div key={i} className="w-full h-full shrink-0 snap-center relative bg-gradient-to-br from-gold-100 to-amber-50 dark:from-gold-500/10 dark:to-amber-500/5 flex items-center justify-center">
+            <button key={i} type="button" onClick={() => url && setLightboxOpen(true)}
+              className="group w-full h-full shrink-0 snap-center relative bg-gradient-to-br from-gold-100 to-amber-50 dark:from-gold-500/10 dark:to-amber-500/5 flex items-center justify-center text-left cursor-zoom-in">
               {url ? (
-                <Image src={url} alt={`${prop.title} photo ${i + 1}`} fill priority={i === 0} sizes="(max-width: 640px) 100vw, 800px" className="object-cover"/>
+                <>
+                  <Image src={url} alt={`${prop.title} photo ${i + 1}`} fill priority={i === 0} sizes="(max-width: 640px) 100vw, 800px" className="object-contain"/>
+                  <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <span className="flex items-center gap-1.5 text-white text-xs font-medium bg-black/50 rounded-full px-3 py-1.5"><Maximize2 size={13}/>View full size</span>
+                  </span>
+                </>
               ) : <Building2 size={56} className="text-gold-300"/>}
-            </div>
+            </button>
           ))}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none rounded-2xl"/>
@@ -157,7 +181,7 @@ export default function PropertyDetailClient() {
         </div>
         {isSeller && (
           <div className="absolute top-4 right-4">
-            <Button size="sm" variant="secondary" onClick={() => setDM(true)} leftIcon={<Trash2 size={13}/>}>Delete</Button>
+            <Button size="sm" variant="danger" onClick={() => setDM(true)} leftIcon={<Trash2 size={13}/>}>Delete</Button>
           </div>
         )}
         {prop.imageUrls && prop.imageUrls.length > 1 && (
@@ -280,6 +304,14 @@ export default function PropertyDetailClient() {
                 {trust.identityScore !== undefined && (
                   <div className="flex items-center justify-between"><span className="text-muted">Trust score</span><span className="font-semibold">{trust.identityScore}/100</span></div>
                 )}
+                {trust.badgeLevel && trust.badgeLevel !== 'NONE' && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">Badge</span>
+                    <span className={`font-semibold ${trust.badgeLevel === 'GOLD' ? 'text-gold-600 dark:text-gold-400' : trust.badgeLevel === 'VERIFIED' ? 'text-emerald-600' : 'text-gray-500'}`}>
+                      {trust.badgeLevel === 'GOLD' ? 'Gold — fully reviewed' : trust.badgeLevel === 'VERIFIED' ? 'Verified' : 'Basic'}
+                    </span>
+                  </div>
+                )}
               </div>
               <Link href={`/sellers/${prop.sellerId}?propertyId=${prop.id}`} className="mt-3 flex items-center justify-center gap-1.5 h-8 rounded-md border border-gold-300 dark:border-gold-500/30 text-gold-600 dark:text-gold-400 text-[12px] font-medium hover:bg-gold-50 dark:hover:bg-gold-500/10 transition-colors">
                 <UserSearch size={13}/>View the seller&apos;s full profile
@@ -390,6 +422,42 @@ export default function PropertyDetailClient() {
 
       <ConfirmModal open={deleteModal} onClose={() => setDM(false)} onConfirm={handleDelete} loading={deleting}
         title="Delete listing" message={`Are you sure you want to delete "${prop.title}"? This cannot be undone.`} label="Delete listing"/>
+
+      {lightboxOpen && prop.imageUrls && prop.imageUrls.length > 0 && createPortal(
+        <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4" onClick={() => setLightboxOpen(false)}>
+          <div className="absolute top-4 right-4" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setLightboxOpen(false)} aria-label="Close"
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors">
+              <X size={18}/>
+            </button>
+          </div>
+
+          {prop.imageUrls.length > 1 && (
+            <button onClick={e => { e.stopPropagation(); setActiveImage(i => Math.max(0, i - 1)) }}
+              disabled={activeImage === 0} aria-label="Previous photo"
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors disabled:opacity-30">
+              <ChevronLeft size={20}/>
+            </button>
+          )}
+
+          <div onClick={e => e.stopPropagation()} className="relative w-full max-w-5xl h-[80vh]">
+            <Image src={prop.imageUrls[activeImage]} alt={`${prop.title} photo ${activeImage + 1}`} fill sizes="100vw" className="object-contain"/>
+          </div>
+
+          {prop.imageUrls.length > 1 && (
+            <button onClick={e => { e.stopPropagation(); setActiveImage(i => Math.min(prop.imageUrls!.length - 1, i + 1)) }}
+              disabled={activeImage === prop.imageUrls.length - 1} aria-label="Next photo"
+              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors disabled:opacity-30">
+              <ChevronRight size={20}/>
+            </button>
+          )}
+
+          {prop.imageUrls.length > 1 && (
+            <p className="absolute bottom-6 inset-x-0 text-center text-white text-xs">{activeImage + 1} / {prop.imageUrls.length}</p>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

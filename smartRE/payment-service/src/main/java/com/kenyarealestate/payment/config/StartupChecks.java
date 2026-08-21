@@ -3,6 +3,8 @@ package com.kenyarealestate.payment.config;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -15,38 +17,72 @@ import org.springframework.web.client.RestTemplate;
 @Component
 public class StartupChecks implements CommandLineRunner {
 
+    private final Environment environment;
+
     @Value("${mpesa.callback-allowed-ips:}")
     private String callbackAllowedIps;
 
+    @Value("${mpesa.callback-insecure-allow-all-ips:false}")
+    private boolean insecureAllowAll;
+
     @Value("${mpesa.callback-url:}")
     private String callbackUrl;
+
+    @Value("${mpesa.security-credential-cert-path}")
+    private Resource securityCredentialCert;
+
+    public StartupChecks(Environment environment) {
+        this.environment = environment;
+    }
 
     @Override
     public void run(String... args) {
         checkCallbackIpAllowlist();
         checkCallbackUrlReachable();
+        checkSecurityCredentialCert();
+    }
+
+    private void checkSecurityCredentialCert() {
+        if (securityCredentialCert.isReadable()) return;
+        log.warn("############################################################");
+        log.warn("# PAYMENT-SERVICE: MPESA B2C CERTIFICATE NOT CONFIGURED");
+        log.warn("# mpesa.security-credential-cert-path does not point at a");
+        log.warn("# readable file. Every escrow release and refund payout will");
+        log.warn("# fail until MPESA_SECURITY_CREDENTIAL_CERT_PATH points at a");
+        log.warn("# real Safaricom public certificate (see .env.example).");
+        log.warn("############################################################");
     }
 
     private void checkCallbackIpAllowlist() {
-        if (!StringUtils.hasText(callbackAllowedIps)) {
+        if (StringUtils.hasText(callbackAllowedIps)) return;
+
+        boolean insecureModeActive = insecureAllowAll || isLocalOrDevProfile();
+        if (insecureModeActive) {
             log.warn("############################################################");
             log.warn("# PAYMENT-SERVICE: M-PESA CALLBACK IP ALLOWLIST IS EMPTY");
-            log.warn("# The M-Pesa callback endpoint accepts requests from ANY");
-            log.warn("# source IP - only the path secret protects it. Set");
-            log.warn("# MPESA_CALLBACK_ALLOWED_IPS to Safaricom's published IP");
-            log.warn("# ranges before any production use.");
+            log.warn("# Running in insecure/local mode: the callback endpoints accept");
+            log.warn("# requests from ANY source IP - only the path secret protects");
+            log.warn("# them. This is only acceptable for local development.");
             log.warn("############################################################");
+        } else {
+            log.error("############################################################");
+            log.error("# PAYMENT-SERVICE: M-PESA CALLBACK IP ALLOWLIST IS EMPTY");
+            log.error("# The callback endpoints will now REJECT every request (fail");
+            log.error("# closed) because MPESA_CALLBACK_ALLOWED_IPS is unset and this");
+            log.error("# is not a local/dev profile. M-Pesa payment confirmations and");
+            log.error("# B2C payout callbacks will never be accepted until you set");
+            log.error("# MPESA_CALLBACK_ALLOWED_IPS to Safaricom's published IP ranges.");
+            log.error("############################################################");
         }
     }
 
-    /**
-     * Safaricom confirms STK pushes via an async webhook to mpesa.callback-url. If that URL
-     * doesn't actually route back to this service (dev tunnel not started, stale/reserved
-     * domain gone unbound, still the placeholder default), payments silently never move past
-     * STK_PUSHED and nothing else in the app surfaces an error — the reconciliation job papers
-     * over it after a delay, but the underlying misconfiguration goes unnoticed indefinitely.
-     * One best-effort probe at boot, short timeout, never fails startup.
-     */
+    private boolean isLocalOrDevProfile() {
+        for (String p : environment.getActiveProfiles()) {
+            if ("local".equalsIgnoreCase(p) || "dev".equalsIgnoreCase(p) || "test".equalsIgnoreCase(p)) return true;
+        }
+        return false;
+    }
+
     private void checkCallbackUrlReachable() {
         if (!StringUtils.hasText(callbackUrl) || callbackUrl.contains("your-domain.com")) {
             log.warn("############################################################");
@@ -69,8 +105,7 @@ public class StartupChecks implements CommandLineRunner {
                 warnTunnelDown();
             }
         } catch (HttpStatusCodeException e) {
-            // Any HTTP status returned by OUR OWN gateway/app proves the tunnel is routing
-            // through correctly — only the ngrok edge's own "no tunnel bound" page is a problem.
+
             String headers = e.getResponseHeaders() == null ? "" : e.getResponseHeaders().toString();
             if (looksLikeNgrokTunnelDown(headers, e.getResponseBodyAsString())) {
                 warnTunnelDown();

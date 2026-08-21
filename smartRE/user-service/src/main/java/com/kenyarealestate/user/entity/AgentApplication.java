@@ -29,6 +29,9 @@ public class AgentApplication {
     @Column(name = "business_doc_url", nullable = false)
     private String businessDocUrl;
 
+    @Column(name = "business_doc_hash", length = 64)
+    private String businessDocHash;
+
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 

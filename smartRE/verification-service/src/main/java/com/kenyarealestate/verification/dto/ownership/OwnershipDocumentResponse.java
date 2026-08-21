@@ -10,6 +10,8 @@ public class OwnershipDocumentResponse {
     private UUID id;
     private OwnershipDocumentCategory documentCategory;
     private String documentUrl;
+    private Boolean isRequired;
+    private LocalDateTime humanReviewedAt;
     private Boolean lcAdvocateStampPresent;
     private Boolean lcAdvocateSignaturePresent;
     private Boolean lcCommissionerOathsPresent;

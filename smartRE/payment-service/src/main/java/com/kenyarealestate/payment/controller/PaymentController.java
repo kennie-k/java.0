@@ -1,9 +1,11 @@
 package com.kenyarealestate.payment.controller;
 
 import com.kenyarealestate.payment.dto.*;
+import com.kenyarealestate.payment.security.CallbackIpPolicy;
 import com.kenyarealestate.payment.security.CallbackSecurity;
 import com.kenyarealestate.payment.security.JwtUtil;
 import com.kenyarealestate.payment.service.PaymentService;
+import com.kenyarealestate.payment.service.RevenueService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -24,17 +26,19 @@ import java.util.UUID;
 public class PaymentController {
 
     private final PaymentService svc;
+    private final RevenueService revenueSvc;
     private final JwtUtil jwtUtil;
+    private final CallbackIpPolicy callbackIpPolicy;
 
     @org.springframework.beans.factory.annotation.Value("${mpesa.callback-secret}")
     private String callbackSecret;
 
-    @org.springframework.beans.factory.annotation.Value("${mpesa.callback-allowed-ips:}")
-    private String callbackAllowedIps;
-
-    public PaymentController(PaymentService svc, JwtUtil jwtUtil) {
+    public PaymentController(PaymentService svc, RevenueService revenueSvc, JwtUtil jwtUtil,
+                              CallbackIpPolicy callbackIpPolicy) {
         this.svc = svc;
+        this.revenueSvc = revenueSvc;
         this.jwtUtil = jwtUtil;
+        this.callbackIpPolicy = callbackIpPolicy;
     }
 
     @PostMapping("/initiate")
@@ -52,7 +56,7 @@ public class PaymentController {
             log.warn("M-Pesa callback received with invalid secret from IP {}", callerIp);
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        if (!CallbackSecurity.ipAllowed(callerIp, callbackAllowedIps)) {
+        if (!callbackIpPolicy.isAllowed(callerIp)) {
             log.warn("M-Pesa callback received from disallowed IP {}", callerIp);
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -81,6 +85,18 @@ public class PaymentController {
         return ResponseEntity.ok(svc.getByIdAndBuyer(id, resolveUserId(r)));
     }
 
+    @GetMapping("/internal/{id}")
+    public ResponseEntity<PaymentResponse> getByIdInternal(@PathVariable UUID id) {
+        return ResponseEntity.ok(svc.getById(id));
+    }
+
+    @PutMapping("/internal/{id}/refund-viewing-fee")
+    public ResponseEntity<Void> refundViewingFee(
+            @PathVariable UUID id, @RequestParam String reason) {
+        revenueSvc.refundViewingFee(id, reason);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/my")
     public ResponseEntity<Page<PaymentResponse>> myPayments(
             HttpServletRequest r,
@@ -91,6 +107,11 @@ public class PaymentController {
         Sort.Direction dir = "ASC".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
         return ResponseEntity.ok(svc.getByBuyer(resolveUserId(r),
                 PageRequest.of(page, size, Sort.by(dir, sortBy))));
+    }
+
+    @GetMapping("/my/summary")
+    public ResponseEntity<PaymentSummaryResponse> myPaymentsSummary(HttpServletRequest r) {
+        return ResponseEntity.ok(svc.getBuyerSummary(resolveUserId(r)));
     }
 
     @GetMapping("/admin/pending-release")

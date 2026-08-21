@@ -1,13 +1,14 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Star, Plus } from 'lucide-react'
-import { reviewApi, paymentApi } from '@/lib/api'
+import { reviewApi, paymentApi, propertyApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
-import type { ReviewResponse, PaymentResponse } from '@/types'
+import { isSellerOrAgent } from '@/lib/roles'
+import type { ReviewResponse, PaymentResponse, PropertyResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { Modal, EmptyState, PageLoader } from '@/components/ui/Modal'
-import { RatingStars } from '@/components/ui/Badge'
+import { Badge, RatingStars } from '@/components/ui/Badge'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Textarea from '@/components/ui/Textarea'
@@ -16,23 +17,49 @@ import toast from 'react-hot-toast'
 
 export default function ReviewsPage() {
   const { user } = useAuthStore()
-  const [reviews, setReviews]   = useState<ReviewResponse[]>([])
-  const [payments, setPayments] = useState<PaymentResponse[]>([])
-  const [loading, setLoad]      = useState(true)
-  const [modal, setModal]       = useState(false)
-  const [submitting, setSub]    = useState(false)
-  const [form, setForm]         = useState({ sellerId:'', propertyId:'', paymentId:'', rating:'5', comment:'' })
+  const isSeller = isSellerOrAgent(user)
+  const [reviews, setReviews]     = useState<ReviewResponse[]>([])
+  const [payments, setPayments]   = useState<PaymentResponse[]>([])
+  const [properties, setProperties] = useState<PropertyResponse[]>([])
+  const [loading, setLoad]        = useState(true)
+  const [modal, setModal]         = useState(false)
+  const [submitting, setSub]      = useState(false)
+  const [propertyFilter, setPropertyFilter] = useState('')
+  const [form, setForm]           = useState({ sellerId:'', propertyId:'', paymentId:'', rating:'5', comment:'' })
 
   useEffect(() => {
     if (!user) return
     Promise.allSettled([
       user.role === 'BUYER' ? reviewApi.myReviews() : reviewApi.bySeller(user.userId),
       paymentApi.my(),
-    ]).then(([r,p]) => {
+      isSeller ? propertyApi.my(0, 100) : Promise.resolve(null),
+    ]).then(([r,p,props]) => {
       if (r.status==='fulfilled') setReviews(r.value.content || [])
       if (p.status==='fulfilled') setPayments((p.value.content || []).filter(x=>x.status==='COMPLETED'))
+      if (props.status==='fulfilled' && props.value) setProperties(props.value.content || [])
     }).finally(()=>setLoad(false))
-  }, [user])
+  }, [user, isSeller])
+
+  const propertyTitle = useMemo(() => {
+    const map: Record<string,string> = {}
+    for (const p of properties) map[p.id] = p.title
+    return map
+  }, [properties])
+
+  const ratingsByProperty = useMemo(() => {
+    if (!isSeller) return []
+    const byId: Record<string, ReviewResponse[]> = {}
+    for (const r of reviews) (byId[r.propertyId] ??= []).push(r)
+    return properties
+      .map(p => {
+        const propReviews = byId[p.id] ?? []
+        const avg = propReviews.length ? propReviews.reduce((s,r)=>s+r.rating,0)/propReviews.length : 0
+        return { property: p, avg, count: propReviews.length }
+      })
+      .sort((a,b) => b.count - a.count)
+  }, [isSeller, properties, reviews])
+
+  const visibleReviews = propertyFilter ? reviews.filter(r => r.propertyId === propertyFilter) : reviews
 
   const submit = async () => {
     if (!form.paymentId) { toast.error('Select a payment'); return }
@@ -103,7 +130,7 @@ export default function ReviewsPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <RatingStars rating={r.rating}/>
                     <span className="text-xs text-muted">{fmt.ago(r.createdAt)}</span>
-                    {r.verified && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-xs">Verified purchase</span>}
+                    {r.verified && <Badge variant="success" size="sm">Verified purchase</Badge>}
                   </div>
                   {r.comment && <p className="text-sm text-gray-700 dark:text-gray-300">{r.comment}</p>}
                 </div>

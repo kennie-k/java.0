@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, CheckCircle, XCircle, FileText, AlertTriangle, Landmark, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ListChecks, CheckCircle, CheckCircle2, Circle, XCircle, FileText, AlertTriangle, Landmark, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react'
 import { verifApi } from '@/lib/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { optimisticRemoveFromPage, rollbackPage } from '@/lib/queryClientHelpers'
@@ -14,7 +14,7 @@ import { DocumentThumbnailGrid } from '@/components/ui/DocumentThumbnailGrid'
 import Textarea from '@/components/ui/Textarea'
 import Select from '@/components/ui/Select'
 import { StatusBadge } from '@/components/ui/Badge'
-import { fmt } from '@/lib/utils'
+import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { IdentityVerificationResponse, OwnershipVerificationResponse } from '@/types'
 
@@ -48,12 +48,17 @@ function VerifQueuePageInner() {
     decision: 'APPROVED', notes: '',
   })
   const [ownForm, setOwnForm] = useState(defaultOwnForm())
+  const [legalReviewDocId, setLegalReviewDocId] = useState<string | null>(null)
 
-  const idQueueQuery = useQuery({ queryKey: ID_KEY, queryFn: () => verifApi.idAdminQueue() })
+  const nextUnreviewedLegalDoc = (docs: { id: string; isRequired?: boolean; humanReviewedAt?: string }[]) =>
+    docs.find(d => (d.isRequired ?? true) && !d.humanReviewedAt)?.id ?? docs[0]?.id ?? null
+
+  const idQueueQuery = useQuery({ queryKey: ID_KEY, queryFn: () => verifApi.idAdminQueue(), refetchInterval: 15_000 })
   const ownQueueQueries = useQueries({
     queries: OWN_STATUSES.map(status => ({
       queryKey: queryKeys.ownershipAdminQueue(status),
       queryFn: () => verifApi.ownerAdminQueue(status),
+      refetchInterval: 15_000,
     })),
   })
 
@@ -74,6 +79,7 @@ function VerifQueuePageInner() {
   const openOwnership = (item: OwnershipVerificationResponse) => {
     setModal({ ...item, _tab: 'ownership' })
     setOwnForm(defaultOwnForm())
+    setLegalReviewDocId(item.status === 'LEGAL_REVIEW' ? nextUnreviewedLegalDoc(item.documents ?? []) : null)
   }
 
   const idModalIndex = modal?._tab === 'identity' ? idQueue.findIndex(x => x.id === modal.id) : -1
@@ -96,6 +102,7 @@ function VerifQueuePageInner() {
       }
       if (item.status === 'LEGAL_REVIEW') {
         return verifApi.ownerAdminLegal(item.id, {
+          documentId: legalReviewDocId,
           lcAdvocateStampPresent: ownForm.lcAdvocateStampPresent,
           lcAdvocateSignaturePresent: ownForm.lcAdvocateSignaturePresent,
           lcOfficialSealPresent: ownForm.lcOfficialSealPresent,
@@ -110,10 +117,18 @@ function VerifQueuePageInner() {
         ministryLandsConfirmed: ownForm.ministryConfirmed, encumbranceClear: ownForm.encumbranceClear,
       })
     },
-    onMutate: item => optimisticRemoveFromPage<OwnershipVerificationResponse>(qc, queryKeys.ownershipAdminQueue(item.status), item.id),
+    onMutate: item => {
+      if (item.status === 'LEGAL_REVIEW' && !isLastUnreviewedLegalDoc(item)) return
+      return optimisticRemoveFromPage<OwnershipVerificationResponse>(qc, queryKeys.ownershipAdminQueue(item.status), item.id)
+    },
     onError: (_e, item, previous) => rollbackPage(qc, queryKeys.ownershipAdminQueue(item.status), previous),
     onSettled: () => qc.invalidateQueries({ queryKey: OWN_KEY_PREFIX }),
   })
+
+  const isLastUnreviewedLegalDoc = (item: OwnershipVerificationResponse) => {
+    const remaining = (item.documents ?? []).filter(d => (d.isRequired ?? true) && !d.humanReviewedAt)
+    return remaining.length <= 1
+  }
 
   const reviewing = reviewIdentityMutation.isPending || advanceOwnershipMutation.isPending
 
@@ -128,8 +143,16 @@ function VerifQueuePageInner() {
 
   const advanceOwnership = async () => {
     if (!modal || modal._tab !== 'ownership') return
+    if (modal.status === 'LEGAL_REVIEW' && !legalReviewDocId) { toast.error('No document selected for legal review'); return }
     try {
-      await advanceOwnershipMutation.mutateAsync(modal)
+      const wasLastDoc = modal.status !== 'LEGAL_REVIEW' || isLastUnreviewedLegalDoc(modal)
+      const updated = await advanceOwnershipMutation.mutateAsync(modal)
+      if (!wasLastDoc) {
+        setModal({ ...updated, _tab: 'ownership' })
+        setLegalReviewDocId(nextUnreviewedLegalDoc(updated.documents ?? []))
+        toast.success('Document reviewed — continue with the next one')
+        return
+      }
       toast.success('Ownership verification updated')
       setModal(null)
     } catch (e: any) { toast.error(e.response?.data?.error || 'Update failed') }
@@ -219,7 +242,7 @@ function VerifQueuePageInner() {
               <p>User: {modal.userId}</p>
               <p>AI Score: <strong>{modal.identityScore}/100</strong></p>
             </div>
-            <DocumentThumbnailGrid documents={modal.documents.map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
+            <DocumentThumbnailGrid documents={(modal.documents ?? []).map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
             <Select label="Decision" required options={[{ value: 'APPROVED', label: 'Approve' }, { value: 'REJECTED', label: 'Reject' }]}
               value={form.decision} onChange={e => setForm(f => ({ ...f, decision: e.target.value }))}/>
             <Textarea label="Review notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}/>
@@ -230,8 +253,13 @@ function VerifQueuePageInner() {
 
       <Modal open={!!modal && modal._tab === 'ownership'} onClose={() => setModal(null)} title="Review ownership verification"
         footer={<><Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
-          <Button onClick={advanceOwnership} loading={reviewing}>
-            {modal && modal._tab === 'ownership' && modal.status === 'HUMAN_REVIEW' ? 'Submit final decision' : 'Advance to next stage'}
+          <Button onClick={advanceOwnership} loading={reviewing}
+            disabled={modal?._tab === 'ownership' && modal.status === 'LEGAL_REVIEW' && !legalReviewDocId}>
+            {modal && modal._tab === 'ownership'
+              ? modal.status === 'HUMAN_REVIEW' ? 'Submit final decision'
+              : modal.status === 'LEGAL_REVIEW' ? (isLastUnreviewedLegalDoc(modal) ? 'Submit final document' : 'Submit & continue to next document')
+              : 'Advance to next stage'
+              : 'Advance to next stage'}
           </Button></>}>
         {modal && modal._tab === 'ownership' && (
           <div className="space-y-4">
@@ -248,7 +276,9 @@ function VerifQueuePageInner() {
               <p>County: {modal.county} · Parcel: {modal.parcelNumber || 'N/A'}</p>
               <p>Title deed: {modal.titleDeedNumber || 'N/A'} · LR: {modal.lrNumber || 'N/A'}</p>
             </div>
-            <DocumentThumbnailGrid documents={modal.documents.map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
+            {modal.status !== 'LEGAL_REVIEW' && (
+              <DocumentThumbnailGrid documents={(modal.documents ?? []).map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
+            )}
 
             {modal.status === 'MINISTRY_LANDS_CHECK' && (
               <Select label="Ministry of Lands / Ardhisasa confirmed?" required
@@ -261,20 +291,55 @@ function VerifQueuePageInner() {
                 value={String(ownForm.encumbranceClear)} onChange={e => setOwnForm(f => ({ ...f, encumbranceClear: e.target.value === 'true' }))}/>
             )}
             {modal.status === 'LEGAL_REVIEW' && (
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  ['lcAdvocateStampPresent', 'Advocate stamp present'],
-                  ['lcAdvocateSignaturePresent', 'Advocate signature present'],
-                  ['lcOfficialSealPresent', 'Official seal present'],
-                  ['lcOwnerSignaturePresent', 'Owner signature present'],
-                  ['lcParcelNumberMatches', 'Parcel number matches'],
-                  ['humanLegalApproved', 'Overall legal approval'],
-                ] as const).map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-2 text-[12px] p-2 rounded-md border border-base cursor-pointer">
-                    <input type="checkbox" checked={ownForm[key]} onChange={e => setOwnForm(f => ({ ...f, [key]: e.target.checked }))}/>
-                    {label}
-                  </label>
-                ))}
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <p className="text-[12px] font-medium text-gray-600 dark:text-gray-400">
+                    {(modal.documents ?? []).filter(d => (d.isRequired ?? true) && d.humanReviewedAt).length} of{' '}
+                    {(modal.documents ?? []).filter(d => d.isRequired ?? true).length} required documents reviewed —
+                    select a document to review it individually
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(modal.documents ?? []).map(d => (
+                      <button key={d.id} type="button" onClick={() => setLegalReviewDocId(d.id)}
+                        className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] border transition-colors',
+                          d.id === legalReviewDocId
+                            ? 'border-gold-500 bg-gold-50 dark:bg-gold-500/10 text-gold-700 dark:text-gold-400'
+                            : 'border-base hover:bg-gray-50 dark:hover:bg-white/5')}>
+                        {d.humanReviewedAt
+                          ? <CheckCircle2 size={12} className="text-emerald-500 shrink-0"/>
+                          : <Circle size={12} className="text-gray-300 dark:text-gray-600 shrink-0"/>}
+                        {d.documentCategory.replace(/_/g, ' ')}
+                        {!(d.isRequired ?? true) && <span className="text-muted">(optional)</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {legalReviewDocId ? (
+                  <DocumentThumbnailGrid
+                    title="Document under review — inspect closely for stamps, signatures, and seals"
+                    documents={(modal.documents ?? [])
+                      .filter(d => d.id === legalReviewDocId)
+                      .map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}/>
+                ) : (
+                  <InlineError message="No documents attached to this verification — cannot proceed with legal review."/>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ['lcAdvocateStampPresent', 'Advocate stamp present'],
+                    ['lcAdvocateSignaturePresent', 'Advocate signature present'],
+                    ['lcOfficialSealPresent', 'Official seal present'],
+                    ['lcOwnerSignaturePresent', 'Owner signature present'],
+                    ['lcParcelNumberMatches', 'Parcel number matches'],
+                    ['humanLegalApproved', 'Overall legal approval'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-[12px] p-2 rounded-md border border-base cursor-pointer">
+                      <input type="checkbox" checked={ownForm[key]} onChange={e => setOwnForm(f => ({ ...f, [key]: e.target.checked }))}/>
+                      {label}
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
             {modal.status === 'HUMAN_REVIEW' && (

@@ -95,7 +95,7 @@ public class TrustStatusService {
     }
 
     private boolean isApprovedAndNotExpired(SellerIdentityVerification v) {
-        return v.getStatus() == IdentityVerificationStatus.APPROVED && !isExpired(v);
+        return v.getStatus() == IdentityVerificationStatus.APPROVED && !isExpired(v) && !v.isPermanentlyBanned();
     }
 
     private boolean isExpired(SellerIdentityVerification v) {

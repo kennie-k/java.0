@@ -8,7 +8,7 @@ import type { PaymentResponse, PaymentAuditResponse, PaymentReceiptResponse } fr
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
-import { PageLoader } from '@/components/ui/Modal'
+import { EmptyState, PageLoader } from '@/components/ui/Modal'
 import { fmt } from '@/lib/utils'
 
 export default function PaymentDetailPage() {
@@ -51,7 +51,17 @@ function PaymentDetail() {
   }, [id, payment?.status])
 
   if (loading) return <PageLoader/>
-  if (!payment) return <div className="text-center py-20 text-muted">Payment not found</div>
+  if (!payment) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <Link href="/payments" className="inline-flex items-center gap-2 text-sm text-muted hover:text-gray-900 dark:hover:text-white">
+          <ArrowLeft size={15}/>Back to payments
+        </Link>
+        <EmptyState icon={<Receipt size={28}/>} title="Payment not found"
+          desc="It may not exist, or you may not have access to view it."/>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -64,7 +74,7 @@ function PaymentDetail() {
           <Receipt size={24}/>
         </div>
         <div>
-          <h1 className="font-display text-base font-bold text-gray-900 dark:text-white">{payment.paymentType.replace(/_/g,' ')}</h1>
+          <h1 className="font-display text-lg font-semibold text-gray-900 dark:text-white">{payment.paymentType.replace(/_/g,' ')}</h1>
           <p className="text-muted text-sm">{fmt.datetime(payment.createdAt)}</p>
         </div>
         <div className="ml-auto text-right">
@@ -88,7 +98,7 @@ function PaymentDetail() {
       )}
 
       <Card>
-        <h2 className="font-display font-semibold mb-4">Payment details</h2>
+        <h2 className="font-display font-semibold text-[14px] mb-4">Payment details</h2>
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
           {[
             ['Payment ID', payment.id.slice(0,8)+'...'],
@@ -107,7 +117,7 @@ function PaymentDetail() {
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <Receipt size={16} className="text-gold-500"/>
-            <h2 className="font-display font-semibold">Official receipt</h2>
+            <h2 className="font-display font-semibold text-[14px]">Official receipt</h2>
             <span className="ml-auto font-mono text-sm text-gold-500 font-semibold">{receipt.receiptNumber}</span>
           </div>
           <div className="bg-gray-50 dark:bg-[#1A1A35] rounded-xl p-4 space-y-3">
@@ -121,7 +131,7 @@ function PaymentDetail() {
 
       {audit.length>0 && (
         <Card>
-          <h2 className="font-display font-semibold mb-4 flex items-center gap-2"><Activity size={16} className="text-gold-500"/>Audit trail</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4 flex items-center gap-2"><Activity size={16} className="text-gold-500"/>Audit trail</h2>
           <div className="relative">
             <div className="absolute left-5 top-0 bottom-0 w-px bg-gray-200 dark:bg-gray-800"/>
             <div className="space-y-4">

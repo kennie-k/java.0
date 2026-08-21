@@ -43,6 +43,7 @@ function AgentApplicationsQueuePageInner() {
   const { data, isLoading: loading, error } = useQuery({
     queryKey: APPLICATIONS_KEY,
     queryFn: () => agentApplicationApi.adminQueue(status),
+    refetchInterval: 15_000,
   })
   const queue = data?.content ?? []
   const filtered = queue.filter(a =>

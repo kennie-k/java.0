@@ -1,13 +1,11 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Menu, X, Search, Sun, Moon, ShieldCheck, ChevronDown, LayoutDashboard, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
-import { authApi } from '@/lib/api'
+import { useLogout } from '@/hooks/useLogout'
 import { cn, fmt } from '@/lib/utils'
-import toast from 'react-hot-toast'
 
 const links = [
   { label: 'Buy',        href: '/properties?listingType=SALE' },
@@ -18,8 +16,8 @@ const links = [
 ]
 
 export default function PublicHeader() {
-  const { user, logout } = useAuthStore()
-  const router = useRouter()
+  const { user } = useAuthStore()
+  const handleLogout = useLogout('/')
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [dark, setDark] = useState(false)
@@ -37,11 +35,6 @@ export default function PublicHeader() {
     document.documentElement.classList.toggle('dark')
     localStorage.setItem('sre-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
     setDark(d => !d)
-  }
-
-  const handleLogout = async () => {
-    try { await authApi.logout() } catch {}
-    logout(); toast.success('Logged out'); router.push('/')
   }
 
   return (

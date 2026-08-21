@@ -1,14 +1,15 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, CheckCircle, Clock, XCircle, AlertTriangle, ChevronRight, FileText, Upload, X } from 'lucide-react'
+import { ShieldCheck, CheckCircle, CheckCircle2, Circle, Clock, XCircle, AlertTriangle, ChevronRight, FileText, Upload, X } from 'lucide-react'
 import { verifApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
-import type { IdentityVerificationResponse } from '@/types'
+import type { IdentityVerificationResponse, DocumentRequirementResponse } from '@/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
-import FileUpload from '@/components/ui/FileUpload'
-import { StatusBadge } from '@/components/ui/Badge'
+import BulkFileUpload from '@/components/ui/BulkFileUpload'
+import { DocumentThumbnailGrid } from '@/components/ui/DocumentThumbnailGrid'
+import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { PageLoader, ConfirmModal } from '@/components/ui/Modal'
 import { fmt, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -41,14 +42,13 @@ export default function VerificationPage() {
   const [starting, setStart]    = useState(false)
   const [submitting, setSubmit] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [confirmRemoveDoc, setConfirmRemoveDoc] = useState<string | null>(null)
   const prevStatus = useRef<string | null>(null)
 
   useEffect(() => {
     verifApi.myId().then(setVerif).catch(() => setVerif(null)).finally(() => setLoad(false))
   }, [])
 
-  // Poll while a submission is in flight so the seller sees HUMAN_REVIEW -> APPROVED/REJECTED
-  // land without having to manually refresh the page.
   useEffect(() => {
     const status = verif?.status
     if (!status || !NON_TERMINAL.includes(status)) return
@@ -82,10 +82,16 @@ export default function VerificationPage() {
   }
 
   const attachDoc = async (category: string, url: string) => {
+    await verifApi.uploadIdDoc({ documentCategory: category, documentUrl: url })
+    const v = await verifApi.myId(); setVerif(v)
+  }
+
+  const removeDoc = async (documentId: string) => {
     try {
-      await verifApi.uploadIdDoc({ documentCategory: category, documentUrl: url })
-      const v = await verifApi.myId(); setVerif(v)
-    } catch (e: any) { toast.error(e.response?.data?.error || 'Failed to attach document') }
+      const v = await verifApi.deleteIdDoc(documentId); setVerif(v)
+      toast.success('Document removed')
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Failed to remove document') }
+    finally { setConfirmRemoveDoc(null) }
   }
 
   const submit = async () => {
@@ -101,8 +107,15 @@ export default function VerificationPage() {
 
   const status = verif?.status || 'DRAFT'
   const info   = STATUS_INFO[status] || STATUS_INFO.DRAFT
-  const uploadedCategories = verif?.documents?.map(d => d.documentCategory) || []
-  const allUploaded = DOC_CATEGORIES.every(d => uploadedCategories.includes(d.key))
+  const missingCategories = verif?.missingRequiredDocuments ?? DOC_CATEGORIES.map(d => d.key)
+  const requiredCategories: DocumentRequirementResponse[] = DOC_CATEGORIES.map(d => ({
+    documentCategory: d.key,
+    isMandatory: true,
+    uploaded: !missingCategories.includes(d.key),
+  }))
+  const categoryLabels = Object.fromEntries(DOC_CATEGORIES.map(d => [d.key, d.label]))
+  const uploadedCount = requiredCategories.filter(d => d.uploaded).length
+  const allUploaded = missingCategories.length === 0
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -156,34 +169,39 @@ export default function VerificationPage() {
 
       {verif && ['DRAFT','REJECTED','EXPIRED','REQUIRES_RESUBMISSION'].includes(status) && (
         <Card>
-          <h2 className="font-display font-semibold mb-4 flex items-center gap-2"><Upload size={17} className="text-gold-500"/>Upload documents</h2>
-          <div className="space-y-4">
+          <h2 className="font-display font-semibold text-[14px] mb-4 flex items-center gap-2"><Upload size={17} className="text-gold-500"/>Upload documents</h2>
+          <div className="space-y-2 mb-4">
             {DOC_CATEGORIES.map(doc => {
-              const uploaded = uploadedCategories.includes(doc.key)
+              const uploaded = requiredCategories.find(r => r.documentCategory === doc.key)?.uploaded
               return (
-                <div key={doc.key} className={cn('border rounded-xl p-4 transition-colors', uploaded ? 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-500/5' : 'border-base')}>
-                  <div className="flex items-start gap-3">
-                    <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', uploaded ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600' : 'bg-gray-100 dark:bg-[#1A1A35] text-gray-500')}>
-                      {uploaded ? <CheckCircle size={18}/> : <FileText size={18}/>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <p className="font-medium text-sm text-gray-900 dark:text-white">{doc.label}</p>
-                        {uploaded && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px]">Uploaded</span>}
-                      </div>
-                      <p className="text-xs text-muted mb-2">{doc.desc}</p>
-                      {!uploaded && (
-                        <FileUpload category={doc.key} compact accept=".jpg,.jpeg,.png" label="Click or drag your photo here" onUploaded={url => attachDoc(doc.key, url)}/>
-                      )}
-                    </div>
-                  </div>
+                <div key={doc.key} className="flex items-center gap-2 text-[13px]">
+                  {uploaded ? <CheckCircle2 size={14} className="text-emerald-500 shrink-0"/> : <Circle size={14} className="text-gray-300 dark:text-gray-600 shrink-0"/>}
+                  <span className={cn(uploaded ? 'text-gray-700 dark:text-gray-300' : 'text-muted')}>{doc.label}</span>
+                  <span className="text-xs text-muted">— {doc.desc}</span>
                 </div>
               )
             })}
           </div>
 
+          <BulkFileUpload
+            requiredCategories={requiredCategories}
+            categoryLabels={categoryLabels}
+            onFileRegistered={(category, url) => attachDoc(category, url)}
+            accept=".jpg,.jpeg,.png"
+          />
+
+          {verif?.documents && verif.documents.length > 0 && (
+            <div className="mt-4">
+              <DocumentThumbnailGrid
+                title="Review before submitting — remove and re-upload if a document is mis-tagged"
+                documents={verif.documents.map(d => ({ id: d.id, url: d.documentUrl, label: d.documentCategory }))}
+                onRemove={doc => setConfirmRemoveDoc(doc.id)}
+              />
+            </div>
+          )}
+
           <div className="mt-6 flex items-center justify-between">
-            <p className="text-sm text-muted">{uploadedCategories.length} of {DOC_CATEGORIES.length} documents uploaded</p>
+            <p className="text-sm text-muted">{uploadedCount} of {DOC_CATEGORIES.length} documents uploaded</p>
             <div className="flex items-center gap-2">
               <Button variant="ghost" onClick={() => setConfirmCancel(true)} leftIcon={<X size={14}/>}>Cancel</Button>
               <Button onClick={submit} loading={submitting} disabled={!allUploaded}>Submit for verification <ChevronRight size={14}/></Button>
@@ -192,6 +210,11 @@ export default function VerificationPage() {
         </Card>
       )}
 
+      <ConfirmModal open={!!confirmRemoveDoc} onClose={() => setConfirmRemoveDoc(null)}
+        onConfirm={() => confirmRemoveDoc && removeDoc(confirmRemoveDoc)}
+        title="Remove this document?" label="Remove" danger
+        message="You'll need to re-upload a replacement before you can submit."/>
+
       <ConfirmModal open={confirmCancel} onClose={() => setConfirmCancel(false)}
         onConfirm={() => { setConfirmCancel(false); router.push('/dashboard') }}
         title="Leave verification?" label="Leave" danger={false}
@@ -199,7 +222,7 @@ export default function VerificationPage() {
 
       {verif?.documents && verif.documents.length > 0 && !['DRAFT'].includes(status) && (
         <Card>
-          <h2 className="font-display font-semibold mb-4">Submitted documents</h2>
+          <h2 className="font-display font-semibold text-[14px] mb-4">Submitted documents</h2>
           <div className="space-y-3">
             {verif.documents.map(doc => (
               <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-[#1A1A35]">
@@ -210,8 +233,8 @@ export default function VerificationPage() {
                   <p className="text-sm font-medium truncate">{doc.documentCategory?.replace(/_/g,' ') || 'Document'}</p>
                   <p className="text-xs text-muted">Score: {doc.aiAuthenticityScore ?? 'N/A'}/100 · {fmt.date(doc.uploadedAt)}</p>
                 </div>
-                {doc.aiTamperDetected && <span className="badge bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 text-xs">Tamper detected</span>}
-                {doc.humanVerified && <span className="badge bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-xs">Human verified</span>}
+                {doc.aiTamperDetected && <Badge variant="error" size="sm">Tamper detected</Badge>}
+                {doc.humanVerified && <Badge variant="success" size="sm">Human verified</Badge>}
               </div>
             ))}
           </div>

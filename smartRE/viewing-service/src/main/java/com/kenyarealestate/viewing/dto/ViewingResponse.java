@@ -25,6 +25,8 @@ public class ViewingResponse {
     private boolean sellerConfirmed;
     private UUID viewingFeePaymentId;
     private String viewingFeeStatus;
+    private UUID cancelledBy;
+    private String cancellationReason;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

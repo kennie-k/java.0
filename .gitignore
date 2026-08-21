@@ -1,6 +1,8 @@
 target/
 *.class
 smartRE/*/data/uploads/
+smartRE/payment-service/certs/*
+!smartRE/payment-service/certs/.gitkeep
 .idea/
 *.iml
 *.zip
@@ -13,3 +15,4 @@ node_modules/
 .next/
 build/
 .gradle/
+.m2-cache/

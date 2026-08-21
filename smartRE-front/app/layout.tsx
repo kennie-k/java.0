@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Toaster } from 'react-hot-toast'
 import Providers from './providers'
+import ErrorTracking from '@/components/ErrorTracking'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({ children }:{ children: React.ReactNode }) {
         `}} />
       </head>
       <body>
+        <ErrorTracking />
         <Providers>{children}</Providers>
         <Toaster position="top-right" toastOptions={{
           style:{ background:'var(--toast-bg,#fff)', color:'#111', border:'1px solid #e5e7eb', borderRadius:10 },

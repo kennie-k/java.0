@@ -15,6 +15,12 @@ import java.util.UUID;
 public interface PropertyOwnershipVerificationRepository extends JpaRepository<PropertyOwnershipVerification, UUID> {
     Optional<PropertyOwnershipVerification> findByPropertyId(UUID propertyId);
     boolean existsByPropertyIdAndStatus(UUID propertyId, OwnershipVerificationStatus status);
+    boolean existsByParcelNumberAndPropertyIdNotAndStatusNot(
+            String parcelNumber, UUID propertyId, OwnershipVerificationStatus excludedStatus);
+    boolean existsByTitleDeedNumberAndPropertyIdNotAndStatusNot(
+            String titleDeedNumber, UUID propertyId, OwnershipVerificationStatus excludedStatus);
+    boolean existsByLrNumberAndPropertyIdNotAndStatusNot(
+            String lrNumber, UUID propertyId, OwnershipVerificationStatus excludedStatus);
     List<PropertyOwnershipVerification> findBySellerIdentityVerificationUserId(UUID userId);
     Page<PropertyOwnershipVerification> findByStatus(OwnershipVerificationStatus status, Pageable pageable);
 }

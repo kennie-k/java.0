@@ -8,5 +8,5 @@ import java.math.BigDecimal; import java.util.List;
     private Double latitude, longitude;
     @NotNull @DecimalMin("0.01") private BigDecimal price;
     private Integer bedrooms, bathrooms, yearBuilt; private Double areaSqm;
-    private List<String> imageUrls;
+    @NotEmpty(message = "At least one photo is required") private List<String> imageUrls;
 }

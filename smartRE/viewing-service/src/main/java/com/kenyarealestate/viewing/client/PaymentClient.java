@@ -60,4 +60,20 @@ public class PaymentClient {
             return null;
         }
     }
+
+    public boolean refundViewingFee(UUID paymentId, String reason) {
+        try {
+            HttpHeaders h = new HttpHeaders();
+            h.set("X-Internal-Secret", internalSecret);
+
+            String url = paymentUrl + "/api/payments/internal/" + paymentId
+                    + "/refund-viewing-fee?reason=" + java.net.URLEncoder.encode(reason, java.nio.charset.StandardCharsets.UTF_8);
+
+            rt.exchange(url, HttpMethod.PUT, new HttpEntity<>(h), Void.class);
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to refund viewing fee for payment {}: {}", paymentId, e.getMessage());
+            return false;
+        }
+    }
 }

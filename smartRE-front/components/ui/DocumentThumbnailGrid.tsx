@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
-import { ImageOff, X, ChevronLeft, ChevronRight, FileText, ExternalLink, Download, Printer } from 'lucide-react'
+import { ImageOff, X, ChevronLeft, ChevronRight, FileText, ExternalLink, Download, Printer, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export interface DocThumb { id: string; url: string; label?: string }
@@ -19,9 +20,13 @@ const extOf = (url: string) => {
 
 const filenameFor = (doc: DocThumb) => `${(doc.label || 'document').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${extOf(doc.url)}`
 
-// Cross-origin <a download> is unreliable (browsers often navigate instead of saving), and the
-// document endpoint is cookie-authenticated, so we fetch the bytes ourselves (credentials
-// included) and save the resulting blob — this works regardless of origin or auth.
+// `doc.label` is currently always a fixed backend enum (documentCategory), so
+// this is defense-in-depth rather than a live exploit — but printDocument()
+// interpolates it into HTML via document.write, so it must never be trusted
+// as pre-sanitized. Escape it the same way we would any user-controlled string.
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
 async function fetchAsBlobUrl(url: string): Promise<string> {
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error(`Failed to fetch document (${res.status})`)
@@ -50,7 +55,10 @@ async function printDocument(doc: DocThumb) {
     const win = window.open('', '_blank')
     if (!win) { toast.error('Pop-up blocked — allow pop-ups to print'); return }
     const isPdfDoc = isPdf(doc.url)
-    win.document.write(`<!doctype html><html><head><title>${doc.label || 'Document'}</title><style>
+    const safeTitle = escapeHtml(doc.label || 'Document')
+    // blobUrl comes from our own URL.createObjectURL() call above, not from
+    // any user input, so it's safe to interpolate as an attribute value.
+    win.document.write(`<!doctype html><html><head><title>${safeTitle}</title><style>
       html,body{margin:0;height:100%;background:#525659}
       img{display:block;max-width:100%;max-height:100vh;margin:0 auto;object-fit:contain}
       embed{width:100%;height:100%;border:0}
@@ -65,7 +73,7 @@ async function printDocument(doc: DocThumb) {
   }
 }
 
-export function DocumentThumbnailGrid({ documents, title }: { documents: DocThumb[]; title?: string }) {
+export function DocumentThumbnailGrid({ documents, title, onRemove }: { documents: DocThumb[]; title?: string; onRemove?: (doc: DocThumb) => void }) {
   const [broken, setBroken] = useState<Record<string, boolean>>({})
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
@@ -115,6 +123,13 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
                     className="w-7 h-7 rounded-md bg-black/60 hover:bg-black/80 text-white flex items-center justify-center">
                     <Printer size={13}/>
                   </span>
+                  {onRemove && (
+                    <span role="button" tabIndex={0} onClick={e => { e.preventDefault(); e.stopPropagation(); onRemove(d) }}
+                      aria-label="Remove document" title="Remove"
+                      className="w-7 h-7 rounded-md bg-black/60 hover:bg-red-600 text-white flex items-center justify-center">
+                      <Trash2 size={13}/>
+                    </span>
+                  )}
                 </div>
                 {d.label && (
                   <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-2 py-1 truncate">
@@ -151,6 +166,13 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
                   className="w-7 h-7 rounded-md bg-black/60 hover:bg-black/80 text-white flex items-center justify-center">
                   <Printer size={13}/>
                 </span>
+                {onRemove && (
+                  <span role="button" tabIndex={0} onClick={e => { e.stopPropagation(); onRemove(d) }}
+                    aria-label="Remove document" title="Remove"
+                    className="w-7 h-7 rounded-md bg-black/60 hover:bg-red-600 text-white flex items-center justify-center">
+                    <Trash2 size={13}/>
+                  </span>
+                )}
               </div>
               {d.label && (
                 <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-2 py-1 truncate">
@@ -162,7 +184,7 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
         })}
       </div>
 
-      {current && (
+      {current && createPortal(
         <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4" onClick={() => setLightboxIndex(null)}>
           <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
             <button onClick={() => downloadDocument(current)} aria-label="Download document" title="Download"
@@ -211,7 +233,8 @@ export function DocumentThumbnailGrid({ documents, title }: { documents: DocThum
             {current.label?.replace(/_/g, ' ')}{current.label && imageDocs.length > 1 ? ' · ' : ''}
             {imageDocs.length > 1 ? `${lightboxIndex! + 1} / ${imageDocs.length}` : ''}
           </p>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

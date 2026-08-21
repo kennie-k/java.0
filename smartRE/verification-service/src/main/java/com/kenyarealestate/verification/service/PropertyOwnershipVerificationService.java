@@ -8,10 +8,12 @@ import com.kenyarealestate.verification.entity.*;
 import com.kenyarealestate.verification.enums.*;
 import com.kenyarealestate.verification.exception.*;
 import com.kenyarealestate.verification.repository.*;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +37,7 @@ public class PropertyOwnershipVerificationService {
     private final ArdhisasaClient ardhisasaClient;
     private final VerificationEventPublisher eventPublisher;
     private final TrustStatusService trustStatusService;
+    private final FraudFlagService fraudFlagService;
 
     public PropertyOwnershipVerificationService(
             PropertyOwnershipVerificationRepository ownershipRepo,
@@ -48,7 +51,8 @@ public class PropertyOwnershipVerificationService {
             DocumentAnalysisService documentAnalysisService,
             ArdhisasaClient ardhisasaClient,
             VerificationEventPublisher eventPublisher,
-            TrustStatusService trustStatusService) {
+            TrustStatusService trustStatusService,
+            FraudFlagService fraudFlagService) {
         this.ownershipRepo           = ownershipRepo;
         this.docRepo                 = docRepo;
         this.identityRepo            = identityRepo;
@@ -61,6 +65,7 @@ public class PropertyOwnershipVerificationService {
         this.ardhisasaClient         = ardhisasaClient;
         this.eventPublisher          = eventPublisher;
         this.trustStatusService      = trustStatusService;
+        this.fraudFlagService        = fraudFlagService;
     }
 
     public OwnershipVerificationResponse startOwnershipVerification(UUID userId,
@@ -81,16 +86,34 @@ public class PropertyOwnershipVerificationService {
         if (ownershipRepo.existsByPropertyIdAndStatus(req.getPropertyId(), OwnershipVerificationStatus.APPROVED))
             throw new VerificationException("This property already has an approved ownership verification.");
 
-        PropertyOwnershipVerification verif = ownershipRepo.save(
-                PropertyOwnershipVerification.builder()
-                        .propertyId(req.getPropertyId())
-                        .sellerIdentityVerification(identity)
-                        .propertyType(req.getPropertyType())
-                        .county(req.getCounty())
-                        .parcelNumber(req.getParcelNumber())
-                        .titleDeedNumber(req.getTitleDeedNumber())
-                        .lrNumber(req.getLrNumber())
-                        .build());
+        rejectIfLandIdentifierReused("parcel number", req.getParcelNumber(), req.getPropertyId(),
+                ownershipRepo::existsByParcelNumberAndPropertyIdNotAndStatusNot);
+        rejectIfLandIdentifierReused("title deed number", req.getTitleDeedNumber(), req.getPropertyId(),
+                ownershipRepo::existsByTitleDeedNumberAndPropertyIdNotAndStatusNot);
+        rejectIfLandIdentifierReused("LR number", req.getLrNumber(), req.getPropertyId(),
+                ownershipRepo::existsByLrNumberAndPropertyIdNotAndStatusNot);
+
+        PropertyOwnershipVerification verif;
+        try {
+            verif = ownershipRepo.save(
+                    PropertyOwnershipVerification.builder()
+                            .propertyId(req.getPropertyId())
+                            .sellerIdentityVerification(identity)
+                            .propertyType(req.getPropertyType())
+                            .county(req.getCounty())
+                            .parcelNumber(req.getParcelNumber())
+                            .titleDeedNumber(req.getTitleDeedNumber())
+                            .lrNumber(req.getLrNumber())
+                            .build());
+        } catch (DataIntegrityViolationException e) {
+            String msg = e.getMostSpecificCause().getMessage();
+            if (msg != null && (msg.contains("uk_pov_parcel_number") || msg.contains("uk_pov_title_deed_number")
+                    || msg.contains("uk_pov_lr_number"))) {
+                throw new DuplicateDocumentException(
+                        "This parcel/title deed/LR number is already under verification for a different property.");
+            }
+            throw e;
+        }
 
         auditService.log(verif.getId(), "OWNERSHIP", "STARTED", userId, "SELLER", null, "DRAFT",
                 "Property: " + req.getPropertyId() + " Type: " + req.getPropertyType());
@@ -147,10 +170,41 @@ public class PropertyOwnershipVerificationService {
         if (verif.getStatus() == OwnershipVerificationStatus.REQUIRES_RESUBMISSION)
             verif.setStatus(OwnershipVerificationStatus.DRAFT);
 
-        verif = ownershipRepo.save(verif);
+        try {
+            verif = ownershipRepo.save(verif);
+
+            ownershipRepo.flush();
+        } catch (DataIntegrityViolationException e) {
+            if (!isDuplicateHashViolation(e)) throw e;
+
+            flagOwnershipFraud(verif, userId, "DUPLICATE_DOCUMENT_HASH",
+                    req.getDocumentCategory().name(), serverHash,
+                    "Concurrent duplicate upload detected at database level");
+            throw new DuplicateDocumentException(
+                    "This document already exists in the system. This incident has been flagged.");
+        }
+
         auditService.log(verif.getId(), "OWNERSHIP", "DOCUMENT_UPLOADED", userId, "SELLER",
                 null, null, "Category: " + req.getDocumentCategory()
                         + " Hash: " + serverHash.substring(0, 12) + "...");
+        return toResponse(verif);
+    }
+
+    public OwnershipVerificationResponse deleteDocument(UUID userId, UUID verificationId, UUID documentId) {
+        PropertyOwnershipVerification verif = getAndAuthorize(verificationId, userId);
+
+        if (verif.getStatus() == OwnershipVerificationStatus.APPROVED)
+            throw new VerificationException("Ownership already approved.");
+        if (verif.getStatus() != OwnershipVerificationStatus.DRAFT
+                && verif.getStatus() != OwnershipVerificationStatus.REJECTED)
+            throw new VerificationException("Cannot remove documents while status is: " + verif.getStatus());
+
+        boolean removed = verif.getDocuments().removeIf(d -> d.getId().equals(documentId));
+        if (!removed) throw new NotFoundException("Document not found: " + documentId);
+
+        verif = ownershipRepo.save(verif);
+        auditService.log(verif.getId(), "OWNERSHIP", "DOCUMENT_REMOVED", userId, "SELLER",
+                null, null, "Document: " + documentId);
         return toResponse(verif);
     }
 
@@ -181,9 +235,34 @@ public class PropertyOwnershipVerificationService {
             return toResponse(verif);
         }
 
-        verif.setStatus(OwnershipVerificationStatus.SUBMITTED);
+        verif.setStatus(OwnershipVerificationStatus.AI_SCREENING);
         verif = ownershipRepo.save(verif);
-        auditService.log(verif.getId(), "OWNERSHIP", "SUBMITTED", userId, "SELLER", prev, "SUBMITTED", null);
+        auditService.log(verif.getId(), "OWNERSHIP", "SUBMITTED_FOR_AI_ANALYSIS", userId, "SELLER",
+                prev, "AI_SCREENING", null);
+
+        // Run screening synchronously against every required document instead of
+        // parking at SUBMITTED and waiting for an external caller to hit the
+        // internal /ai-screening endpoint — nothing in this system ever did.
+        for (PropertyOwnershipDocument doc : List.copyOf(verif.getDocuments())) {
+            if (!Boolean.TRUE.equals(doc.getIsRequired())) continue;
+
+            DocumentAnalysisService.DocumentAnalysisResult analysis =
+                    documentAnalysisService.analyseDocument(doc.getDocumentUrl(), doc.getDocumentCategory().name());
+
+            OwnershipDocumentLegalCheckRequest screeningReq = new OwnershipDocumentLegalCheckRequest();
+            screeningReq.setDocumentId(doc.getId());
+            screeningReq.setAiAuthenticityScore(analysis.authenticityScore());
+            screeningReq.setAiTamperDetected(analysis.tamperDetected());
+            screeningReq.setAiAlterationDetected(analysis.alterationDetected());
+            screeningReq.setAiFontConsistency(analysis.fontConsistency());
+            screeningReq.setAiDateSequenceValid(analysis.dateSequenceValid());
+            screeningReq.setAiMetadataClean(analysis.metadataClean());
+            screeningReq.setAiScreeningNotes(analysis.notes());
+
+            applyAiScreeningResult(verif, doc, screeningReq);
+            if (verif.getStatus() == OwnershipVerificationStatus.REJECTED) break;
+        }
+
         return toResponse(verif);
     }
 
@@ -197,6 +276,12 @@ public class PropertyOwnershipVerificationService {
                 .findFirst()
                 .orElseThrow(() -> new NotFoundException("Document not found: " + req.getDocumentId()));
 
+        applyAiScreeningResult(verif, doc, req);
+        return toResponse(verif);
+    }
+
+    private void applyAiScreeningResult(PropertyOwnershipVerification verif, PropertyOwnershipDocument doc,
+                                        OwnershipDocumentLegalCheckRequest req) {
         doc.setAiAuthenticityScore(req.getAiAuthenticityScore());
         doc.setAiTamperDetected(req.getAiTamperDetected());
         doc.setAiAlterationDetected(req.getAiAlterationDetected());
@@ -224,7 +309,7 @@ public class PropertyOwnershipVerificationService {
             auditService.log(verif.getId(), "OWNERSHIP", "AUTO_REJECTED_FRAUD_" + fraudType,
                     null, "SYSTEM", "AI_SCREENING", "REJECTED",
                     fraudType + " on: " + doc.getDocumentCategory().name());
-            return toResponse(verif);
+            return;
         }
 
         verif.setOwnershipScore(scoringEngine.computeOwnershipScore(verif));
@@ -237,9 +322,8 @@ public class PropertyOwnershipVerificationService {
             runArdhisasaCheck(verif);
         } else {
             verif.setStatus(OwnershipVerificationStatus.AI_SCREENING);
+            ownershipRepo.save(verif);
         }
-
-        return toResponse(ownershipRepo.save(verif));
     }
 
     private void runArdhisasaCheck(PropertyOwnershipVerification verif) {
@@ -485,6 +569,20 @@ public class PropertyOwnershipVerificationService {
         return ownershipRepo.existsByPropertyIdAndStatus(propertyId, OwnershipVerificationStatus.APPROVED);
     }
 
+    @FunctionalInterface
+    private interface LandIdentifierCheck {
+        boolean exists(String identifier, UUID propertyId, OwnershipVerificationStatus excludedStatus);
+    }
+
+    private void rejectIfLandIdentifierReused(String label, String value, UUID propertyId,
+                                              LandIdentifierCheck check) {
+        if (StringUtils.hasText(value)
+                && check.exists(value, propertyId, OwnershipVerificationStatus.REJECTED)) {
+            throw new VerificationException(
+                    "This " + label + " (" + value + ") is already under verification for a different property.");
+        }
+    }
+
     private PropertyOwnershipVerification getAndAuthorize(UUID verificationId, UUID userId) {
         PropertyOwnershipVerification verif = ownershipRepo.findById(verificationId)
                 .orElseThrow(() -> new NotFoundException("Verification not found: " + verificationId));
@@ -504,17 +602,14 @@ public class PropertyOwnershipVerificationService {
     private void flagOwnershipFraud(PropertyOwnershipVerification verif, UUID userId,
                                     String fraudType, String docCategory,
                                     String docHash, String details) {
-        fraudRepo.save(VerificationFraudFlag.builder()
-                .userId(userId)
-                .verificationId(verif.getId())
-                .verificationTrack("OWNERSHIP")
-                .fraudType(fraudType)
-                .documentCategory(docCategory)
-                .documentHash(docHash)
-                .details(details)
-                .build());
-        verif.setFraudStrikeCount(verif.getFraudStrikeCount() + 1);
-        ownershipRepo.save(verif);
+        int strikes = fraudFlagService.flagOwnershipFraud(
+                verif.getId(), userId, fraudType, docCategory, docHash, details);
+        verif.setFraudStrikeCount(strikes);
+    }
+
+    private boolean isDuplicateHashViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("uk_pod_file_hash");
     }
 
     private List<DocumentRequirementResponse> getMissingMandatoryDocs(PropertyOwnershipVerification verif) {
@@ -550,6 +645,8 @@ public class PropertyOwnershipVerificationService {
         List<OwnershipDocumentResponse> docs = v.getDocuments().stream()
                 .map(d -> OwnershipDocumentResponse.builder()
                         .id(d.getId()).documentCategory(d.getDocumentCategory()).documentUrl(d.getDocumentUrl())
+                        .isRequired(d.getIsRequired())
+                        .humanReviewedAt(d.getHumanReviewedAt())
                         .lcAdvocateStampPresent(d.getLcAdvocateStampPresent())
                         .lcAdvocateSignaturePresent(d.getLcAdvocateSignaturePresent())
                         .lcCommissionerOathsPresent(d.getLcCommissionerOathsPresent())

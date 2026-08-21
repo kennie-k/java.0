@@ -1,11 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ShieldCheck, ShieldX, Phone, Calendar, Building2, Lock, Star, FileCheck, Landmark, ArrowLeft, LogIn } from 'lucide-react'
+import { ShieldCheck, ShieldX, Phone, Calendar, Building2, Lock, Star, FileCheck, Landmark, ArrowLeft, LogIn, Clock } from 'lucide-react'
 import { useSellerProfile } from '@/hooks/useSellerProfile'
 import { useAuthStore } from '@/lib/store'
 import { paymentApi } from '@/lib/api'
+import type { PaymentResponse } from '@/types'
 import ReportButton from '@/components/report/ReportButton'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
@@ -26,6 +27,24 @@ export default function SellerProfileClient() {
   const [payModal, setPM] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [paying, setPaying] = useState(false)
+  const [pendingPayment, setPendingPayment] = useState<PaymentResponse | null>(null)
+  const [checkingPending, setCheckingPending] = useState(true)
+
+  const pendingKey = `smartre:pendingProfilePayment:${id}`
+
+  useEffect(() => {
+    const storedId = localStorage.getItem(pendingKey)
+    if (!storedId) { setCheckingPending(false); return }
+    paymentApi.getById(storedId).then(p => {
+      if (['PENDING', 'STK_PUSHED'].includes(p.status)) setPendingPayment(p)
+      else localStorage.removeItem(pendingKey)
+    }).catch(() => localStorage.removeItem(pendingKey))
+      .finally(() => setCheckingPending(false))
+  }, [id])
+
+  useEffect(() => {
+    if (hasAccess) { localStorage.removeItem(pendingKey); setPendingPayment(null) }
+  }, [hasAccess])
 
   const handleUnlock = async () => {
     if (!phoneNumber.trim()) { toast.error('Enter your M-Pesa phone number'); return }
@@ -37,6 +56,8 @@ export default function SellerProfileClient() {
         propertyId, sellerId: id, amount: accessFee, phoneNumber, paymentType: 'PROFILE_ACCESS',
       })
       toast.success('STK push sent. Enter your PIN, then return here.')
+      localStorage.setItem(pendingKey, res.id)
+      setPendingPayment(res)
       setPM(false)
       router.push(`/payments/${res.id}?returnTo=${encodeURIComponent(`/sellers/${id}`)}`)
     } catch (e: any) {
@@ -102,7 +123,20 @@ export default function SellerProfileClient() {
         </div>
       </Card>
 
-      {!hasAccess && (
+      {!hasAccess && pendingPayment && (
+        <Card className="text-center">
+          <Clock size={22} className="text-amber-500 mx-auto mb-2 animate-pulse"/>
+          <h2 className="font-display font-semibold text-gray-900 dark:text-white text-[15px] mb-1">Payment pending</h2>
+          <p className="text-[12px] text-muted max-w-sm mx-auto mb-4">
+            You already have an M-Pesa STK push for this profile awaiting confirmation. Enter your PIN on your phone, or check the current status below.
+          </p>
+          <Link href={`/payments/${pendingPayment.id}?returnTo=${encodeURIComponent(`/sellers/${id}`)}`}>
+            <Button variant="secondary">Check payment status</Button>
+          </Link>
+        </Card>
+      )}
+
+      {!hasAccess && !pendingPayment && !checkingPending && (
         <Card className="text-center">
           <Lock size={22} className="text-gold-500 mx-auto mb-2"/>
           <h2 className="font-display font-semibold text-gray-900 dark:text-white text-[15px] mb-1">Unlock full seller details</h2>

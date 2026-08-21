@@ -12,9 +12,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
+    private final InternalSecretFilter internalSecretFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter f) {
+    public SecurityConfig(JwtAuthenticationFilter f, InternalSecretFilter internalSecretFilter) {
         this.jwtFilter = f;
+        this.internalSecretFilter = internalSecretFilter;
     }
 
     @Bean
@@ -24,11 +26,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/payments/mpesa/callback/**").permitAll()
                         .requestMatchers("/api/revenue/mpesa/b2c/callback/**").permitAll()
+                        .requestMatchers("/api/revenue/mpesa/b2c/status-callback/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/payments/config").permitAll()
+                        .requestMatchers("/api/payments/internal/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                         .requestMatchers("/api/revenue/**").hasRole("ADMIN")
                         .requestMatchers("/api/payments/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
+                .addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

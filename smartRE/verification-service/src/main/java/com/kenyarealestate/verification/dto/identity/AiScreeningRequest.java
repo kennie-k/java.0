@@ -13,4 +13,5 @@ public class AiScreeningRequest {
     private Boolean aiSignatureDetected;
     private Boolean aiSealDetected;
     private String aiScreeningNotes;
+    private String extractedIdNumber;
 }

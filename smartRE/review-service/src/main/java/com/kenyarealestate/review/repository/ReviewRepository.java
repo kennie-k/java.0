@@ -10,9 +10,10 @@ import java.util.*;
 
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, UUID> {
-    Page<Review> findBySellerId(UUID sellerId, Pageable p);
-    Page<Review> findByPropertyId(UUID propertyId, Pageable p);
+    Page<Review> findBySellerIdAndIsVerifiedTrue(UUID sellerId, Pageable p);
+    Page<Review> findByPropertyIdAndIsVerifiedTrue(UUID propertyId, Pageable p);
     Page<Review> findByReviewerId(UUID reviewerId, Pageable p);
+    Page<Review> findByIsVerified(boolean isVerified, Pageable p);
     boolean existsByPaymentId(UUID paymentId);
     boolean existsByReviewerIdAndPropertyId(UUID reviewerId, UUID propertyId);
 
@@ -21,4 +22,13 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
 
     @Query("SELECT COUNT(r) FROM Review r WHERE r.sellerId = :id AND r.isVerified = true")
     long countBySeller(@Param("id") UUID id);
+
+    long countByIsVerifiedTrue();
+    long countByIsVerifiedFalse();
+
+    @Query("SELECT AVG(r.rating) FROM Review r WHERE r.isVerified = true")
+    Double avgRatingPlatform();
+
+    @Query("SELECT r.rating, COUNT(r) FROM Review r WHERE r.isVerified = true GROUP BY r.rating ORDER BY r.rating DESC")
+    List<Object[]> ratingDistribution();
 }

@@ -28,6 +28,22 @@ Backend must be running at http://localhost:8080
 Create `.env.local`:
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8080
+
+# Optional — production S3 bucket that property/document photos are served
+# from. Used to build next.config.js's images.remotePatterns allowlist (falls
+# back to the default bucket below if unset). Only needed outside local dev.
+NEXT_PUBLIC_S3_PUBLIC_URL=https://smartre-documents.s3.amazonaws.com
+```
+
+Server-only (not `NEXT_PUBLIC_*` — never shipped to the browser):
+```
+# Optional. The same HMAC key the backend services sign sre_token JWTs with
+# (smartRE/.env JWT_SECRET). When set, middleware.ts verifies the token's
+# signature with `jose` before using its claims for redirect decisions. When
+# unset, middleware.ts falls back to an unverified decode used only for UX
+# redirects — see the comment at the top of middleware.ts for what that does
+# and does not protect.
+JWT_SECRET=
 ```
 
 ## Folder structure
